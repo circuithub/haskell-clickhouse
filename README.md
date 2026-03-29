@@ -13,7 +13,7 @@ The public API lives under `Database.ClickHouse` with lower-level modules expose
 
 ## Status
 
-Usable, but still early. The library is focused on a clean typed API for query parameters, RowBinary decoding, and streaming inserts.
+This library has been in production use at Scarf for over 2 years, but has not been developed or generalized beyond our own needs. We are happy to accept PRs for any PRs and bugfixes. 
 
 ## Installation
 
