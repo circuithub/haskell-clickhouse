@@ -18,10 +18,10 @@ module Database.ClickHouse.Result
     -- * Row
     Row,
     column,
-    nullableColumn,
 
     -- * Column
     Column,
+    nullable,
     int8,
     uint8,
     int16,
@@ -119,10 +119,10 @@ instance Applicative Row where
 column :: Column a -> Row a
 column (Column get) = Row 1 get
 
-nullableColumn :: Column a -> Row (Maybe a)
-nullableColumn (Column get) = Row 1 $ do
+nullable :: Column a -> Column (Maybe a)
+nullable (Column get) = Column $ do
   w <- Database.ClickHouse.Parser.word8
-  if w > 0
+  if w /= 0
     then pure Nothing
     else fmap Just get
 
