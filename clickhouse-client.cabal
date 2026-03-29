@@ -1,0 +1,99 @@
+cabal-version:   3.4
+
+name:            clickhouse-client
+version:         0.1.0.0
+synopsis:        Typed RowBinary client for ClickHouse
+
+description:
+  A small Haskell client for ClickHouse focused on typed query parameters,
+  RowBinary result decoding, and efficient RowBinary inserts.
+  .
+  The library exposes a compact API for:
+  .
+  * running parameterized queries with typed decoders
+  * streaming inserts with composable row encoders
+  * working with ClickHouse primitives plus Nullable, Array, Map, and tuple values
+  .
+  See the README for usage examples and current scope.
+
+homepage:        https://github.com/scarf-sh/haskell-clickhouse
+bug-reports:     https://github.com/scarf-sh/haskell-clickhouse/issues
+license:         Apache-2.0
+license-file:    LICENSE
+author:          Scarf
+maintainer:      engineering@scarf.sh
+category:        Database
+build-type:      Simple
+extra-source-files:
+  README.md
+  examples/SimpleQuery.hs
+  examples/SimpleInsert.hs
+
+tested-with:
+  GHC ==9.8.* || ==9.10.*
+
+source-repository head
+  type: git
+  location: https://github.com/scarf-sh/haskell-clickhouse.git
+
+common warnings
+  ghc-options:        -Wall -Wno-name-shadowing
+  default-extensions:
+    DerivingStrategies
+    OverloadedRecordDot
+    OverloadedStrings
+
+library
+  import:             warnings
+
+  exposed-modules:
+    Database.ClickHouse
+    Database.ClickHouse.Connection
+    Database.ClickHouse.Insert
+    Database.ClickHouse.Params
+    Database.ClickHouse.Result
+    Database.ClickHouse.Value
+    Database.ClickHouse.Parser
+    Database.ClickHouse.Stream
+
+  default-extensions:
+    OverloadedStrings
+    RecordWildCards
+
+  build-depends:
+    , base >=4.19 && <4.21
+    , bytestring
+    , containers
+    , contravariant
+    , exceptions
+    , hashable
+    , http-api-data
+    , http-client
+    , http-types
+    , text
+    , time
+    , unliftio
+    , unordered-containers
+    , uuid
+    , vector
+
+  hs-source-dirs:     src
+  default-language:   GHC2021
+
+test-suite clickhouse-client-test
+  import:             warnings
+  default-language:   GHC2021
+  default-extensions: RecordWildCards
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+  main-is:            Main.hs
+
+  build-depends:
+    , base >=4.19 && <4.21
+    , bytestring
+    , clickhouse-client
+    , tasty
+    , tasty-hunit
+    , text
+    , time
+    , unordered-containers
