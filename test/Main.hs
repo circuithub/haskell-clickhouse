@@ -10,6 +10,8 @@ import Data.Text qualified
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import Data.Typeable (Typeable)
 import Data.Typeable qualified
+import Data.UUID (UUID)
+import Data.UUID qualified
 import Data.Vector qualified
 import Data.Word (Word16, Word32, Word64, Word8)
 import Database.ClickHouse qualified
@@ -58,7 +60,8 @@ tests newConnection =
       Test.Tasty.testGroup "Array data types" (arrays newConnection),
       Test.Tasty.testGroup "Map data types" (maps newConnection),
       Test.Tasty.testGroup "Value insert" (valueInserts newConnection),
-      Test.Tasty.testGroup "Stress test roundtrip" (stressTests newConnection)
+      Test.Tasty.testGroup "Stress test roundtrip" (stressTests newConnection),
+      Test.Tasty.testGroup "Wide table smoketest" (wideTableSmoketest newConnection)
     ]
 
 data PrimitiveTestCase = forall a.
@@ -1244,3 +1247,472 @@ stressTests newConnection =
 
       Data.Vector.fromList rows @=? result
   ]
+
+-- ---------------------------------------------------------------------------
+-- Wide table smoketest
+-- ---------------------------------------------------------------------------
+
+-- | Smoketest that creates a wide table with many column types (including
+-- LowCardinality, Nullable, Array, Map, Enum8, Bool, UUID, DateTime with
+-- timezone, etc.) to verify the library handles a realistic schema.
+wideTableSmoketest :: IO Database.ClickHouse.Connection -> [Test.Tasty.TestTree]
+wideTableSmoketest newConnection =
+  [ testCase "insert and read wide table" $ do
+      connection <- newConnection
+
+      -- Create a wide table exercising many ClickHouse types
+      Database.ClickHouse.runQuery
+        connection
+        ( Data.Text.unlines
+            [ "CREATE TABLE IF NOT EXISTS wide_smoketest (",
+              "  col_revision UInt8,",
+              "  col_time DateTime('UTC'),",
+              "  col_entity_id UInt64,",
+              "  col_name String DEFAULT '',",
+              "  col_lc_uuid UUID DEFAULT '00000000-0000-0000-0000-000000000000',",
+              "  col_label String DEFAULT '',",
+              "  col_lc_uuid_2 UUID DEFAULT '00000000-0000-0000-0000-000000000000',",
+              "  col_description String DEFAULT '',",
+              "  col_url String DEFAULT '',",
+              "  col_domain String DEFAULT '',",
+              "  col_image String DEFAULT '',",
+              "  col_reference String DEFAULT '',",
+              "  col_backend String DEFAULT '',",
+              "  col_version String DEFAULT '',",
+              "  col_file_name String DEFAULT '',",
+              "  col_redirect_url String DEFAULT '',",
+              "  col_lib_version String DEFAULT '',",
+              "  col_arch String DEFAULT '',",
+              "  col_platform_name String DEFAULT '',",
+              "  col_variables Map(String, String) DEFAULT map(),",
+              "  col_imported_version String DEFAULT '',",
+              "  col_dnt Bool DEFAULT false,",
+              "  col_is_bot Nullable(Bool) DEFAULT false,",
+              "  col_os_name String DEFAULT '',",
+              "  col_client_name String DEFAULT '',",
+              "  col_client_version String DEFAULT '',",
+              "  col_request_id String DEFAULT '',",
+              "  col_request_method LowCardinality(String) DEFAULT '',",
+              "  col_request_host String DEFAULT '',",
+              "  col_request_path String DEFAULT '',",
+              "  col_request_query String DEFAULT '',",
+              "  col_remote_address String DEFAULT '',",
+              "  col_response_status UInt16 DEFAULT 0,",
+              "  col_origin_id UUID DEFAULT '00000000-0000-0000-0000-000000000000',",
+              "  col_endpoint_id String DEFAULT '',",
+              "  col_endpoint_source String DEFAULT '',",
+              "  col_endpoint_type LowCardinality(String) DEFAULT '',",
+              "  col_endpoint_domain String DEFAULT '',",
+              "  col_endpoint_name String DEFAULT '',",
+              "  col_geo_country String DEFAULT '',",
+              "  col_geo_state String DEFAULT '',",
+              "  col_geo_city String DEFAULT '',",
+              "  col_geo_postal_code String DEFAULT '',",
+              "  col_geo_latitude Float64 DEFAULT 0.,",
+              "  col_geo_longitude Float64 DEFAULT 0.,",
+              "  col_company_id UInt64 DEFAULT 0,",
+              "  col_priority LowCardinality(String) DEFAULT '',",
+              "  col_score UInt64 DEFAULT 0,",
+              "  col_os String DEFAULT '',",
+              "  col_user_agent String DEFAULT '',",
+              "  col_confidence Float64 DEFAULT 0.,",
+              "  col_event_type Enum8('unknown' = 1, 'type_a' = 2, 'type_b' = 3, 'type_c' = 4, 'type_d' = 5, 'type_e' = 6, 'type_f' = 7, 'type_g' = 8) DEFAULT 1,",
+              "  col_imported_type String DEFAULT '',",
+              "  col_inserted_at DateTime('UTC') DEFAULT now(),",
+              "  col_tag LowCardinality(String) DEFAULT 'neutral',",
+              "  col_tag_user Int32 DEFAULT 0,",
+              "  col_provenance LowCardinality(String) DEFAULT 'normal',",
+              "  col_tag_id Int64 DEFAULT 0,",
+              "  col_tag_updated_at DateTime('UTC') DEFAULT '1970-01-01 00:00:00',",
+              "  col_is_vpn Bool DEFAULT false,",
+              "  col_is_cloud Bool DEFAULT false,",
+              "  col_global_tag LowCardinality(String) DEFAULT 'neutral',",
+              "  col_global_tag_user Int64 DEFAULT 0,",
+              "  col_global_tag_id Int64 DEFAULT 0,",
+              "  col_global_tag_updated_at DateTime('UTC') DEFAULT '1970-01-01 00:00:00',",
+              "  col_count Int64 DEFAULT 1",
+              ") ENGINE = Memory"
+            ]
+        )
+        mempty
+        Database.ClickHouse.Result.noResult
+        ()
+
+      -- Build the value encoder for all columns
+      let valueEncoder =
+            contramap (\r -> col_revision r) Database.ClickHouse.Value.uint8
+              <> contramap (\r -> col_time r) Database.ClickHouse.Value.dateTime
+              <> contramap (\r -> col_entity_id r) Database.ClickHouse.Value.uint64
+              <> contramap (\r -> col_name r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_lc_uuid r) Database.ClickHouse.Value.uuid
+              <> contramap (\r -> col_label r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_lc_uuid_2 r) Database.ClickHouse.Value.uuid
+              <> contramap (\r -> col_description r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_url r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_domain r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_image r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_reference r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_backend r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_version r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_file_name r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_redirect_url r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_lib_version r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_arch r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_platform_name r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_variables r) (Database.ClickHouse.Value.map Database.ClickHouse.Value.string Database.ClickHouse.Value.string)
+              <> contramap (\r -> col_imported_version r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_dnt r) Database.ClickHouse.Value.bool
+              <> contramap (\r -> col_is_bot r) (Database.ClickHouse.Value.nullable Database.ClickHouse.Value.bool)
+              <> contramap (\r -> col_os_name r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_client_name r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_client_version r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_request_id r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_request_method r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_request_host r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_request_path r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_request_query r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_remote_address r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_response_status r) Database.ClickHouse.Value.uint16
+              <> contramap (\r -> col_origin_id r) Database.ClickHouse.Value.uuid
+              <> contramap (\r -> col_endpoint_id r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_endpoint_source r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_endpoint_type r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_endpoint_domain r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_endpoint_name r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_geo_country r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_geo_state r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_geo_city r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_geo_postal_code r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_geo_latitude r) Database.ClickHouse.Value.float64
+              <> contramap (\r -> col_geo_longitude r) Database.ClickHouse.Value.float64
+              <> contramap (\r -> col_company_id r) Database.ClickHouse.Value.uint64
+              <> contramap (\r -> col_priority r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_score r) Database.ClickHouse.Value.uint64
+              <> contramap (\r -> col_os r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_user_agent r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_confidence r) Database.ClickHouse.Value.float64
+              <> contramap (\r -> col_event_type r) Database.ClickHouse.Value.int8
+              <> contramap (\r -> col_imported_type r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_inserted_at r) Database.ClickHouse.Value.dateTime
+              <> contramap (\r -> col_tag r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_tag_user r) Database.ClickHouse.Value.int32
+              <> contramap (\r -> col_provenance r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_tag_id r) Database.ClickHouse.Value.int64
+              <> contramap (\r -> col_tag_updated_at r) Database.ClickHouse.Value.dateTime
+              <> contramap (\r -> col_is_vpn r) Database.ClickHouse.Value.bool
+              <> contramap (\r -> col_is_cloud r) Database.ClickHouse.Value.bool
+              <> contramap (\r -> col_global_tag r) Database.ClickHouse.Value.string
+              <> contramap (\r -> col_global_tag_user r) Database.ClickHouse.Value.int64
+              <> contramap (\r -> col_global_tag_id r) Database.ClickHouse.Value.int64
+              <> contramap (\r -> col_global_tag_updated_at r) Database.ClickHouse.Value.dateTime
+              <> contramap (\r -> col_count r) Database.ClickHouse.Value.int64
+
+      let columnNames =
+            [ "col_revision",
+              "col_time",
+              "col_entity_id",
+              "col_name",
+              "col_lc_uuid",
+              "col_label",
+              "col_lc_uuid_2",
+              "col_description",
+              "col_url",
+              "col_domain",
+              "col_image",
+              "col_reference",
+              "col_backend",
+              "col_version",
+              "col_file_name",
+              "col_redirect_url",
+              "col_lib_version",
+              "col_arch",
+              "col_platform_name",
+              "col_variables",
+              "col_imported_version",
+              "col_dnt",
+              "col_is_bot",
+              "col_os_name",
+              "col_client_name",
+              "col_client_version",
+              "col_request_id",
+              "col_request_method",
+              "col_request_host",
+              "col_request_path",
+              "col_request_query",
+              "col_remote_address",
+              "col_response_status",
+              "col_origin_id",
+              "col_endpoint_id",
+              "col_endpoint_source",
+              "col_endpoint_type",
+              "col_endpoint_domain",
+              "col_endpoint_name",
+              "col_geo_country",
+              "col_geo_state",
+              "col_geo_city",
+              "col_geo_postal_code",
+              "col_geo_latitude",
+              "col_geo_longitude",
+              "col_company_id",
+              "col_priority",
+              "col_score",
+              "col_os",
+              "col_user_agent",
+              "col_confidence",
+              "col_event_type",
+              "col_imported_type",
+              "col_inserted_at",
+              "col_tag",
+              "col_tag_user",
+              "col_provenance",
+              "col_tag_id",
+              "col_tag_updated_at",
+              "col_is_vpn",
+              "col_is_cloud",
+              "col_global_tag",
+              "col_global_tag_user",
+              "col_global_tag_id",
+              "col_global_tag_updated_at",
+              "col_count"
+            ]
+
+      let ins = Database.ClickHouse.Insert.insert "wide_smoketest" columnNames valueEncoder mempty
+
+      let testUUID = case Data.UUID.fromString "a1b2c3d4-e5f6-7890-abcd-ef1234567890" of
+            Just u -> u
+            Nothing -> error "invalid UUID"
+
+      let epoch = UTCTime (fromGregorian 1970 1 1) 0
+      let testTime = UTCTime (fromGregorian 2024 3 15) (secondsToDiffTime 43200)
+      let longStr = Data.Text.replicate 200 "abcdefghij" -- 2000 chars
+      let row =
+            WideRow
+              { col_revision = 10,
+                col_time = testTime,
+                col_entity_id = 42,
+                col_name = longStr,
+                col_lc_uuid = testUUID,
+                col_label = longStr,
+                col_lc_uuid_2 = testUUID,
+                col_description = longStr,
+                col_url = longStr,
+                col_domain = longStr,
+                col_image = longStr,
+                col_reference = longStr,
+                col_backend = longStr,
+                col_version = longStr,
+                col_file_name = longStr,
+                col_redirect_url = longStr,
+                col_lib_version = longStr,
+                col_arch = longStr,
+                col_platform_name = longStr,
+                col_variables = Data.HashMap.Strict.fromList [("foo", longStr), ("version", longStr)],
+                col_imported_version = longStr,
+                col_dnt = False,
+                col_is_bot = Just False,
+                col_os_name = longStr,
+                col_client_name = longStr,
+                col_client_version = longStr,
+                col_request_id = longStr,
+                col_request_method = "GET",
+                col_request_host = longStr,
+                col_request_path = longStr,
+                col_request_query = longStr,
+                col_remote_address = longStr,
+                col_response_status = 200,
+                col_origin_id = testUUID,
+                col_endpoint_id = longStr,
+                col_endpoint_source = longStr,
+                col_endpoint_type = longStr,
+                col_endpoint_domain = longStr,
+                col_endpoint_name = longStr,
+                col_geo_country = longStr,
+                col_geo_state = longStr,
+                col_geo_city = longStr,
+                col_geo_postal_code = longStr,
+                col_geo_latitude = 37.77,
+                col_geo_longitude = -122.39,
+                col_company_id = 1234,
+                col_priority = longStr,
+                col_score = 500,
+                col_os = longStr,
+                col_user_agent = longStr,
+                col_confidence = 0.85,
+                col_event_type = 2,
+                col_imported_type = longStr,
+                col_inserted_at = testTime,
+                col_tag = longStr,
+                col_tag_user = 0,
+                col_provenance = longStr,
+                col_tag_id = 0,
+                col_tag_updated_at = epoch,
+                col_is_vpn = False,
+                col_is_cloud = False,
+                col_global_tag = longStr,
+                col_global_tag_user = 0,
+                col_global_tag_id = 0,
+                col_global_tag_updated_at = epoch,
+                col_count = 1
+              }
+
+      let n = 10000 :: Int
+      Database.ClickHouse.runInsert connection ins () (replicate n row)
+
+      -- Read back using a multi-column Row decoder
+      result <-
+        Database.ClickHouse.runQuery
+          connection
+          ("SELECT " <> Data.Text.intercalate ", " columnNames <> " FROM wide_smoketest")
+          mempty
+          ( Database.ClickHouse.manyRows
+              ( WideRow
+                  <$> Database.ClickHouse.Result.column Database.ClickHouse.Result.uint8
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.dateTime
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.uint64
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.uuid
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.uuid
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column (Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.string)
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.bool
+                  <*> Database.ClickHouse.Result.column (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.bool)
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.uint16
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.uuid
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.float64
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.float64
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.uint64
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.uint64
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.float64
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.int8
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.dateTime
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.int32
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.int64
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.dateTime
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.bool
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.bool
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.int64
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.int64
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.dateTime
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.int64
+              )
+          )
+          ()
+
+      Data.Vector.fromList (replicate n row) @=? result
+
+      -- Drop table
+      Database.ClickHouse.runQuery
+        connection
+        "DROP TABLE wide_smoketest"
+        mempty
+        Database.ClickHouse.Result.noResult
+        ()
+  ]
+
+data WideRow = WideRow
+  { col_revision :: Word8,
+    col_time :: UTCTime,
+    col_entity_id :: Word64,
+    col_name :: Text,
+    col_lc_uuid :: UUID,
+    col_label :: Text,
+    col_lc_uuid_2 :: UUID,
+    col_description :: Text,
+    col_url :: Text,
+    col_domain :: Text,
+    col_image :: Text,
+    col_reference :: Text,
+    col_backend :: Text,
+    col_version :: Text,
+    col_file_name :: Text,
+    col_redirect_url :: Text,
+    col_lib_version :: Text,
+    col_arch :: Text,
+    col_platform_name :: Text,
+    col_variables :: HashMap Text Text,
+    col_imported_version :: Text,
+    col_dnt :: Bool,
+    col_is_bot :: Maybe Bool,
+    col_os_name :: Text,
+    col_client_name :: Text,
+    col_client_version :: Text,
+    col_request_id :: Text,
+    col_request_method :: Text,
+    col_request_host :: Text,
+    col_request_path :: Text,
+    col_request_query :: Text,
+    col_remote_address :: Text,
+    col_response_status :: Word16,
+    col_origin_id :: UUID,
+    col_endpoint_id :: Text,
+    col_endpoint_source :: Text,
+    col_endpoint_type :: Text,
+    col_endpoint_domain :: Text,
+    col_endpoint_name :: Text,
+    col_geo_country :: Text,
+    col_geo_state :: Text,
+    col_geo_city :: Text,
+    col_geo_postal_code :: Text,
+    col_geo_latitude :: Double,
+    col_geo_longitude :: Double,
+    col_company_id :: Word64,
+    col_priority :: Text,
+    col_score :: Word64,
+    col_os :: Text,
+    col_user_agent :: Text,
+    col_confidence :: Double,
+    col_event_type :: Int8,
+    col_imported_type :: Text,
+    col_inserted_at :: UTCTime,
+    col_tag :: Text,
+    col_tag_user :: Int32,
+    col_provenance :: Text,
+    col_tag_id :: Int64,
+    col_tag_updated_at :: UTCTime,
+    col_is_vpn :: Bool,
+    col_is_cloud :: Bool,
+    col_global_tag :: Text,
+    col_global_tag_user :: Int64,
+    col_global_tag_id :: Int64,
+    col_global_tag_updated_at :: UTCTime,
+    col_count :: Int64
+  }
+  deriving (Eq, Show)

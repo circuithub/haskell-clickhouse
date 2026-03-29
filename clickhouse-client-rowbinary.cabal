@@ -142,4 +142,5 @@ test-suite clickhouse-client-test
     , text
     , time
     , unordered-containers
+    , uuid
     , vector
