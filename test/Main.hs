@@ -1,6 +1,5 @@
 module Main (main) where
 
-import Control.Monad.Trans.Resource qualified
 import Data.Foldable (toList)
 import Data.Functor.Contravariant (($<))
 import Data.HashMap.Strict (HashMap)
@@ -798,12 +797,11 @@ insertAndReadOne connection tableName columnDef valueEncoder resultDecoder row =
 
   -- Insert single row
   let ins = Database.ClickHouse.Insert.insert tableName ["val"] valueEncoder mempty
-  Control.Monad.Trans.Resource.runResourceT $
-    Database.ClickHouse.runInsert
-      connection
-      ins
-      ()
-      [row]
+  Database.ClickHouse.runInsert
+    connection
+    ins
+    ()
+    [row]
 
   -- Read back
   result <-

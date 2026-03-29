@@ -29,7 +29,6 @@ module Database.ClickHouse
 where
 
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Resource qualified
 import Data.ByteString.Builder.Extra qualified
 import Data.ByteString.Lazy qualified
 import Data.Text (Text)
@@ -54,7 +53,7 @@ runInsert ::
   Database.ClickHouse.Insert.Insert input value ->
   input ->
   f value ->
-  Control.Monad.Trans.Resource.ResourceT IO ()
+  IO ()
 runInsert connection insert paramsInput inputs = do
   let query =
         Data.Text.Lazy.toStrict
