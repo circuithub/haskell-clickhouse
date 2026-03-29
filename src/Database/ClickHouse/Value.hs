@@ -142,7 +142,7 @@ dateTime32 = Value $ \time ->
 dateTime64 :: Value Data.Time.UTCTime
 dateTime64 = Value $ \time ->
   Data.ByteString.Builder.int64LE $!
-    round (Data.Time.Clock.POSIX.utcTimeToPOSIXSeconds time)
+    round (Data.Time.Clock.POSIX.utcTimeToPOSIXSeconds time * 1000)
 {-# INLINE dateTime64 #-}
 
 date :: Value Data.Time.Day

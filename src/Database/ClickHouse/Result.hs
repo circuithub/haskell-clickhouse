@@ -241,7 +241,7 @@ dateTime32 =
 
 dateTime64 :: Column Data.Time.UTCTime
 dateTime64 = Column $ do
-  (\time -> Data.Time.Clock.POSIX.posixSecondsToUTCTime (fromIntegral time))
+  (\time -> Data.Time.Clock.POSIX.posixSecondsToUTCTime (fromIntegral time / 1000))
     <$!> Database.ClickHouse.Parser.int64le
 {-# INLINE dateTime64 #-}
 

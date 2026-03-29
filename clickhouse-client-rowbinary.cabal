@@ -144,5 +144,6 @@ test-suite clickhouse-client-test
     , tasty-hunit
     , testcontainers
     , text
+    , time
     , unordered-containers
     , vector

@@ -8,6 +8,7 @@ import Data.HashMap.Strict qualified
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Text (Text)
 import Data.Text qualified
+import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import Data.Typeable (Typeable)
 import Data.Typeable qualified
 import Data.Vector qualified
@@ -94,8 +95,9 @@ primitiveTestCases_string =
 primitiveTestCases_datetime :: [PrimitiveTestCase]
 primitiveTestCases_datetime =
   [ mkD (read "2024-01-31"),
-    mkD32 (read "2024-01-31")
-    -- TODO DateTime/DateTime32/DateTime64
+    mkD32 (read "2024-01-31"),
+    mkDateTime (UTCTime (fromGregorian 2024 1 15) (secondsToDiffTime 43200)),
+    mkDateTime64 (UTCTime (fromGregorian 2024 6 15) (secondsToDiffTime 36000))
   ]
   where
     mkD32 expected =
@@ -111,6 +113,22 @@ primitiveTestCases_datetime =
         { clickHouseType = "Date",
           clickHouseParam = Database.ClickHouse.Params.day,
           clickHouseResult = Database.ClickHouse.Result.date,
+          expected
+        }
+
+    mkDateTime expected =
+      PrimitiveTestCase
+        { clickHouseType = "DateTime",
+          clickHouseParam = Database.ClickHouse.Params.utcTime,
+          clickHouseResult = Database.ClickHouse.Result.dateTime,
+          expected
+        }
+
+    mkDateTime64 expected =
+      PrimitiveTestCase
+        { clickHouseType = "DateTime64(3)",
+          clickHouseParam = Database.ClickHouse.Params.utcTime,
+          clickHouseResult = Database.ClickHouse.Result.dateTime64,
           expected
         }
 
@@ -853,7 +871,27 @@ valueInserts newConnection =
         testCase "String" $ do
           connection <- newConnection
           result <- insertAndReadOne connection "test_val_string" "String" Database.ClickHouse.Value.string Database.ClickHouse.Result.string ("hello こんにちは" :: Text)
-          ("hello こんにちは" :: Text) @=? result
+          ("hello こんにちは" :: Text) @=? result,
+        testCase "Date" $ do
+          connection <- newConnection
+          let val = read "2024-01-31"
+          result <- insertAndReadOne connection "test_val_date" "Date" Database.ClickHouse.Value.date Database.ClickHouse.Result.date val
+          val @=? result,
+        testCase "Date32" $ do
+          connection <- newConnection
+          let val = read "2024-01-31"
+          result <- insertAndReadOne connection "test_val_date32" "Date32" Database.ClickHouse.Value.date32 Database.ClickHouse.Result.date32 val
+          val @=? result,
+        testCase "DateTime" $ do
+          connection <- newConnection
+          let val = UTCTime (fromGregorian 2024 1 15) (secondsToDiffTime 43200)
+          result <- insertAndReadOne connection "test_val_datetime" "DateTime" Database.ClickHouse.Value.dateTime Database.ClickHouse.Result.dateTime val
+          val @=? result,
+        testCase "DateTime64(3)" $ do
+          connection <- newConnection
+          let val = UTCTime (fromGregorian 2024 6 15) (secondsToDiffTime 36000)
+          result <- insertAndReadOne connection "test_val_datetime64" "DateTime64(3)" Database.ClickHouse.Value.dateTime64 Database.ClickHouse.Result.dateTime64 val
+          val @=? result
       ],
     Test.Tasty.testGroup
       "Nullable"
