@@ -1,17 +1,17 @@
 module Main (main) where
 
 import Data.Foldable (toList)
-import Data.Functor.Contravariant (($<))
+import Data.Functor.Contravariant (contramap, ($<))
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified
-import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Int (Int16, Int32, Int64, Int8)
 import Data.Text (Text)
 import Data.Text qualified
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import Data.Typeable (Typeable)
 import Data.Typeable qualified
 import Data.Vector qualified
-import Data.Word (Word8, Word16, Word32, Word64)
+import Data.Word (Word16, Word32, Word64, Word8)
 import Database.ClickHouse qualified
 import Database.ClickHouse.Insert qualified
 import Database.ClickHouse.Params qualified
@@ -57,11 +57,11 @@ tests newConnection =
       Test.Tasty.testGroup "Nullable data types" (nullables newConnection),
       Test.Tasty.testGroup "Array data types" (arrays newConnection),
       Test.Tasty.testGroup "Map data types" (maps newConnection),
-      Test.Tasty.testGroup "Value insert" (valueInserts newConnection)
+      Test.Tasty.testGroup "Value insert" (valueInserts newConnection),
+      Test.Tasty.testGroup "Stress test roundtrip" (stressTests newConnection)
     ]
 
-data PrimitiveTestCase
-  = forall a.
+data PrimitiveTestCase = forall a.
   (Eq a, Show a, Typeable a) =>
   PrimitiveTestCase
   { clickHouseType :: Text,
@@ -332,8 +332,7 @@ primitives newConnection =
 -- Nullable tests
 -- ---------------------------------------------------------------------------
 
-data NullableTestCase
-  = forall a.
+data NullableTestCase = forall a.
   (Eq a, Show a, Typeable a) =>
   NullableTestCase
   { nullableType :: Text,
@@ -480,8 +479,7 @@ data SomeColumn = forall a. (Eq a, Show a, Typeable a) => SomeColumn (Database.C
 -- Array tests
 -- ---------------------------------------------------------------------------
 
-data ArrayTestCase
-  = forall a.
+data ArrayTestCase = forall a.
   (Eq a, Show a, Typeable a) =>
   ArrayTestCase
   { arrayQuery :: Text,
@@ -658,8 +656,7 @@ arrayTestCases =
 -- Map tests
 -- ---------------------------------------------------------------------------
 
-data MapTestCase
-  = forall a.
+data MapTestCase = forall a.
   (Eq a, Show a, Typeable a) =>
   MapTestCase
   { mapQuery :: Text,
@@ -1061,4 +1058,189 @@ valueInserts newConnection =
               (Data.HashMap.Strict.empty :: HashMap Text Word32)
           (Data.HashMap.Strict.empty :: HashMap Text Word32) @=? result
       ]
+  ]
+
+-- ---------------------------------------------------------------------------
+-- Stress test roundtrip (100k rows)
+-- ---------------------------------------------------------------------------
+
+-- | Helper to create a table, insert many rows using Value, and read them all back.
+insertAndReadMany ::
+  (Eq b, Show b) =>
+  Database.ClickHouse.Connection ->
+  Text ->
+  Text ->
+  Database.ClickHouse.Value.Value a ->
+  Database.ClickHouse.Result.Column b ->
+  [a] ->
+  (a -> b) ->
+  IO (Data.Vector.Vector b)
+insertAndReadMany connection tableName columnDef valueEncoder resultDecoder rows _toResult = do
+  -- Create table
+  Database.ClickHouse.runQuery
+    connection
+    ("CREATE TABLE IF NOT EXISTS " <> tableName <> " (val " <> columnDef <> ") ENGINE = Memory")
+    mempty
+    Database.ClickHouse.Result.noResult
+    ()
+
+  -- Insert all rows
+  let ins = Database.ClickHouse.Insert.insert tableName ["val"] valueEncoder mempty
+  Database.ClickHouse.runInsert
+    connection
+    ins
+    ()
+    rows
+
+  -- Read back all rows
+  result <-
+    Database.ClickHouse.runQuery
+      connection
+      ("SELECT val FROM " <> tableName)
+      mempty
+      (Database.ClickHouse.manyRows (Database.ClickHouse.Result.column resultDecoder))
+      ()
+
+  -- Drop table
+  Database.ClickHouse.runQuery
+    connection
+    ("DROP TABLE " <> tableName)
+    mempty
+    Database.ClickHouse.Result.noResult
+    ()
+
+  pure result
+
+stressTests :: IO Database.ClickHouse.Connection -> [Test.Tasty.TestTree]
+stressTests newConnection =
+  [ testCase "100k Int64 roundtrip" $ do
+      connection <- newConnection
+      let n = 100000 :: Int
+          rows = [0 .. fromIntegral (n - 1) :: Int64]
+      result <-
+        insertAndReadMany
+          connection
+          "stress_int64"
+          "Int64"
+          Database.ClickHouse.Value.int64
+          Database.ClickHouse.Result.int64
+          rows
+          id
+      Data.Vector.fromList rows @=? result,
+    testCase "100k UInt64 roundtrip" $ do
+      connection <- newConnection
+      let n = 100000 :: Int
+          rows = [0 .. fromIntegral (n - 1) :: Word64]
+      result <-
+        insertAndReadMany
+          connection
+          "stress_uint64"
+          "UInt64"
+          Database.ClickHouse.Value.uint64
+          Database.ClickHouse.Result.uint64
+          rows
+          id
+      Data.Vector.fromList rows @=? result,
+    testCase "100k String roundtrip" $ do
+      connection <- newConnection
+      let n = 100000 :: Int
+          rows = [Data.Text.pack ("row-" <> show i) | i <- [0 .. n - 1 :: Int]]
+      result <-
+        insertAndReadMany
+          connection
+          "stress_string"
+          "String"
+          Database.ClickHouse.Value.string
+          Database.ClickHouse.Result.string
+          rows
+          id
+      Data.Vector.fromList rows @=? result,
+    testCase "100k Nullable(Int32) roundtrip" $ do
+      connection <- newConnection
+      let n = 100000 :: Int
+          rows =
+            [ if mod i 10 == 0 then Nothing else Just (fromIntegral i :: Int32)
+              | i <- [0 .. n - 1 :: Int]
+            ]
+      result <-
+        insertAndReadMany
+          connection
+          "stress_nullable_int32"
+          "Nullable(Int32)"
+          (Database.ClickHouse.Value.nullable Database.ClickHouse.Value.int32)
+          (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.int32)
+          rows
+          id
+      Data.Vector.fromList rows @=? result,
+    testCase "100k Float64 roundtrip" $ do
+      connection <- newConnection
+      let n = 100000 :: Int
+          rows = [fromIntegral i * 0.5 :: Double | i <- [0 .. n - 1 :: Int]]
+      result <-
+        insertAndReadMany
+          connection
+          "stress_float64"
+          "Float64"
+          Database.ClickHouse.Value.float64
+          Database.ClickHouse.Result.float64
+          rows
+          id
+      Data.Vector.fromList rows @=? result,
+    testCase "100k multi-column (Int64, String, Nullable(UInt32)) roundtrip" $ do
+      connection <- newConnection
+      let n = 100000 :: Int
+
+      -- Create table with multiple columns
+      Database.ClickHouse.runQuery
+        connection
+        "CREATE TABLE IF NOT EXISTS stress_multi (a Int64, b String, c Nullable(UInt32)) ENGINE = Memory"
+        mempty
+        Database.ClickHouse.Result.noResult
+        ()
+
+      -- Build rows as tuples
+      let rows =
+            [ ( fromIntegral i :: Int64,
+                Data.Text.pack ("s-" <> show i),
+                if mod i 7 == 0 then Nothing else Just (fromIntegral i :: Word32)
+              )
+              | i <- [0 .. n - 1 :: Int]
+            ]
+
+      let valueEncoder =
+            contramap (\(a, _, _) -> a) Database.ClickHouse.Value.int64
+              <> contramap (\(_, b, _) -> b) Database.ClickHouse.Value.string
+              <> contramap (\(_, _, c) -> c) (Database.ClickHouse.Value.nullable Database.ClickHouse.Value.uint32)
+
+      let ins = Database.ClickHouse.Insert.insert "stress_multi" ["a", "b", "c"] valueEncoder mempty
+      Database.ClickHouse.runInsert
+        connection
+        ins
+        ()
+        rows
+
+      -- Read back
+      result <-
+        Database.ClickHouse.runQuery
+          connection
+          "SELECT a, b, c FROM stress_multi"
+          mempty
+          ( Database.ClickHouse.manyRows
+              ( (,,)
+                  <$> Database.ClickHouse.Result.column Database.ClickHouse.Result.int64
+                  <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.string
+                  <*> Database.ClickHouse.Result.column (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint32)
+              )
+          )
+          ()
+
+      -- Drop table
+      Database.ClickHouse.runQuery
+        connection
+        "DROP TABLE stress_multi"
+        mempty
+        Database.ClickHouse.Result.noResult
+        ()
+
+      Data.Vector.fromList rows @=? result
   ]

@@ -22,15 +22,19 @@ module Database.ClickHouse
     Database.ClickHouse.Insert.insert,
     Database.ClickHouse.Insert.modifySettings,
 
+    -- * Streaming
+    Database.ClickHouse.Stream.ToStreamIO (..),
+
     -- * Running queries and insert
     runInsert,
     runQuery,
   )
 where
 
-import Control.Monad.IO.Class (liftIO)
+import Data.ByteString qualified
 import Data.ByteString.Builder.Extra qualified
 import Data.ByteString.Lazy qualified
+import Data.IORef
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Text.Lazy qualified
@@ -43,16 +47,17 @@ import Database.ClickHouse.Connection
 import Database.ClickHouse.Insert qualified
 import Database.ClickHouse.Params qualified
 import Database.ClickHouse.Result qualified
+import Database.ClickHouse.Stream (Stream (..), ToStreamIO (..))
 import Database.ClickHouse.Value qualified
 import Network.HTTP.Client qualified
 import Network.HTTP.Types qualified
 
 runInsert ::
-  (Foldable f) =>
+  (ToStreamIO value values) =>
   Connection ->
   Database.ClickHouse.Insert.Insert input value ->
   input ->
-  f value ->
+  values ->
   IO ()
 runInsert connection insert paramsInput inputs = do
   let query =
@@ -61,19 +66,13 @@ runInsert connection insert paramsInput inputs = do
               (Database.ClickHouse.Insert.renderInsert insert)
           )
 
+      stream = toStreamIO inputs
+
       request :: Network.HTTP.Client.Request
       request =
         connection.baseRequest
           { Network.HTTP.Client.requestBody =
-              Network.HTTP.Client.RequestBodyLBS
-                ( Data.ByteString.Builder.Extra.toLazyByteStringWith
-                    ( Data.ByteString.Builder.Extra.untrimmedStrategy
-                        Data.ByteString.Builder.Extra.defaultChunkSize
-                        Data.ByteString.Builder.Extra.defaultChunkSize
-                    )
-                    mempty
-                    (foldMap (Database.ClickHouse.Value.runValue insert.encoder) inputs)
-                ),
+              streamToRequestBody insert.encoder stream,
             Network.HTTP.Client.queryString =
               Network.HTTP.Types.renderQuery
                 True
@@ -84,12 +83,54 @@ runInsert connection insert paramsInput inputs = do
                 )
           }
 
-  liftIO $
-    Network.HTTP.Client.withResponse request connection.manager $ \_response ->
-      -- TODO check for any errors
-      pure ()
+  Network.HTTP.Client.withResponse request connection.manager $ \_response ->
+    -- TODO check for any errors
+    pure ()
 
-  pure ()
+streamToRequestBody :: Database.ClickHouse.Value.Value a -> Stream IO a -> Network.HTTP.Client.RequestBody
+streamToRequestBody encoder stream =
+  Network.HTTP.Client.RequestBodyStreamChunked $ \needsPopper -> do
+    ref <- newIORef (Encode stream)
+    needsPopper (popper ref)
+  where
+    popper ref = do
+      step <- readIORef ref
+      nextStep ref step
+
+    nextStep _ref Done = pure Data.ByteString.empty
+    nextStep ref (Encode s) =
+      unStream
+        s
+        ( \value rest ->
+            nextStep ref $
+              Yield
+                ( Data.ByteString.Lazy.toChunks
+                    ( Data.ByteString.Builder.Extra.toLazyByteStringWith
+                        ( Data.ByteString.Builder.Extra.untrimmedStrategy
+                            Data.ByteString.Builder.Extra.defaultChunkSize
+                            Data.ByteString.Builder.Extra.defaultChunkSize
+                        )
+                        mempty
+                        (Database.ClickHouse.Value.runValue encoder value)
+                    )
+                )
+                rest
+        )
+        (pure Data.ByteString.empty)
+    nextStep ref (Yield chunks rest) =
+      case chunks of
+        [] -> nextStep ref (Encode rest)
+        (x : xs)
+          | Data.ByteString.null x ->
+              nextStep ref (Yield xs rest)
+          | otherwise -> do
+              writeIORef ref (Yield xs rest)
+              pure x
+
+data PopperStep a
+  = Encode (Stream IO a)
+  | Yield [Data.ByteString.ByteString] (Stream IO a)
+  | Done
 
 runQuery ::
   Connection ->

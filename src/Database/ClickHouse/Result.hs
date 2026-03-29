@@ -76,6 +76,7 @@ import Data.Vector.Storable qualified
 import Data.Vector.Unboxed qualified
 import Data.Word (Word16, Word32, Word64, Word8)
 import Database.ClickHouse.Parser qualified
+import Database.ClickHouse.Stream qualified
 import GHC.TypeLits qualified
 import Network.HTTP.Client qualified
 
@@ -386,17 +387,15 @@ data Fold input output where
 
 runDecoder :: IO Data.ByteString.ByteString -> Row a -> Fold a b -> IO b
 runDecoder source (Row _ parser) (Fold start step stop) = do
-  start <- start
-  go start (Database.ClickHouse.Parser.parseFromSource source parser)
-  where
-    go !state (Database.ClickHouse.Parser.Stream getNextElement) = do
-      element <- getNextElement
-      case element of
-        Just (Right x, getNextElement) -> do
-          state <- step x state
-          go state getNextElement
-        Just (Left error, _getNextElement) ->
-          throwIO (RowParseError error)
-        Nothing ->
-          stop state
+  state <- start
+  let stream = Database.ClickHouse.Parser.parseFromSource source parser
+  Database.ClickHouse.Stream.foldStream
+    ( \state element ->
+        case element of
+          Right x -> step x state
+          Left err -> throwIO (RowParseError err)
+    )
+    state
+    stream
+    >>= stop
 {-# INLINE runDecoder #-}

@@ -72,6 +72,7 @@ library
     Database.ClickHouse.Result
     Database.ClickHouse.Value
     Database.ClickHouse.Parser
+    Database.ClickHouse.Stream
 
   -- Modules included in this library but not exported.
   -- other-modules:
