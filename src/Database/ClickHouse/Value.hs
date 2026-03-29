@@ -16,7 +16,6 @@ module Database.ClickHouse.Value
     Database.ClickHouse.Value.bool,
     Database.ClickHouse.Value.map,
     array,
-    tuple2,
     dateTime,
     dateTime32,
     dateTime64,
@@ -96,16 +95,13 @@ uuid = Value $ \uuid ->
       Data.ByteString.Builder.word64LE lo <> Data.ByteString.Builder.word64LE hi
 {-# INLINE uuid #-}
 
-tuple2 :: Value a -> Value b -> Value (a, b)
-tuple2 (Value f) (Value g) = Value $ \(a, b) ->
-  encodeLEB128 2 <> f a <> g b
-{-# INLINE tuple2 #-}
-
 map :: (GHC.Exts.IsList f, GHC.Exts.Item f ~ (a, b)) => Value a -> Value b -> Value f
-map f g =
+map (Value f) (Value g) =
   contramap
     GHC.Exts.toList
-    (array (tuple2 f g))
+    (array tuple2)
+  where
+    tuple2 = Value $ \(a, b) -> f a <> g b
 {-# INLINE map #-}
 
 array :: (Foldable f) => Value a -> Value (f a)
