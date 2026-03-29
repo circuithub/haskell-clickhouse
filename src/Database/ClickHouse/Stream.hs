@@ -12,6 +12,8 @@ module Database.ClickHouse.Stream
   )
 where
 
+import Data.List.NonEmpty (NonEmpty, toList)
+
 -- | A CPS (Scott-encoded) stream type. Each step either yields an element
 -- and a tail, or signals the end of the stream.
 newtype Stream m a = Stream
@@ -60,3 +62,6 @@ instance ToStreamIO a [a] where
 
 instance ToStreamIO a (Stream IO a) where
   toStreamIO = id
+
+instance ToStreamIO a (NonEmpty a) where
+  toStreamIO = fromList . toList
