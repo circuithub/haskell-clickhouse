@@ -1330,7 +1330,11 @@ wideTableSmoketest newConnection =
               "  col_global_tag_user Int64 DEFAULT 0,",
               "  col_global_tag_id Int64 DEFAULT 0,",
               "  col_global_tag_updated_at DateTime('UTC') DEFAULT '1970-01-01 00:00:00',",
-              "  col_count Int64 DEFAULT 1",
+              "  col_count Int64 DEFAULT 1,",
+              "  col_tuple2 Tuple(Int32, String),",
+              "  col_tuple3 Tuple(Float64, UInt64, String),",
+              "  col_tuple2b Tuple(Bool, Int64),",
+              "  col_array_tuple Array(Tuple(String, Int32))",
               ") ENGINE = Memory"
             ]
         )
@@ -1406,6 +1410,10 @@ wideTableSmoketest newConnection =
               <> contramap (\r -> col_global_tag_id r) Database.ClickHouse.Value.int64
               <> contramap (\r -> col_global_tag_updated_at r) Database.ClickHouse.Value.dateTime
               <> contramap (\r -> col_count r) Database.ClickHouse.Value.int64
+              <> contramap (\r -> col_tuple2 r) (Database.ClickHouse.Value.tuple Database.ClickHouse.Value.int32 Database.ClickHouse.Value.string)
+              <> contramap (\r -> col_tuple3 r) (Database.ClickHouse.Value.tuple3 Database.ClickHouse.Value.float64 Database.ClickHouse.Value.uint64 Database.ClickHouse.Value.string)
+              <> contramap (\r -> col_tuple2b r) (Database.ClickHouse.Value.tuple Database.ClickHouse.Value.bool Database.ClickHouse.Value.int64)
+              <> contramap (\r -> col_array_tuple r) (Database.ClickHouse.Value.array (Database.ClickHouse.Value.tuple Database.ClickHouse.Value.string Database.ClickHouse.Value.int32))
 
       let columnNames =
             [ "col_revision",
@@ -1473,7 +1481,11 @@ wideTableSmoketest newConnection =
               "col_global_tag_user",
               "col_global_tag_id",
               "col_global_tag_updated_at",
-              "col_count"
+              "col_count",
+              "col_tuple2",
+              "col_tuple3",
+              "col_tuple2b",
+              "col_array_tuple"
             ]
 
       let ins = Database.ClickHouse.Insert.insert "wide_smoketest" columnNames valueEncoder mempty
@@ -1552,7 +1564,11 @@ wideTableSmoketest newConnection =
                 col_global_tag_user = 0,
                 col_global_tag_id = 0,
                 col_global_tag_updated_at = epoch,
-                col_count = 1
+                col_count = 1,
+                col_tuple2 = (42, "hello"),
+                col_tuple3 = (3.14, 999, "world"),
+                col_tuple2b = (True, -100),
+                col_array_tuple = Data.Vector.fromList [("alpha", 1), ("beta", 2), ("gamma", 3)]
               }
 
       let n = 10000 :: Int
@@ -1632,6 +1648,10 @@ wideTableSmoketest newConnection =
                   <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.int64
                   <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.dateTime
                   <*> Database.ClickHouse.Result.column Database.ClickHouse.Result.int64
+                  <*> Database.ClickHouse.Result.column ((,) <$> Database.ClickHouse.Result.int32 <*> Database.ClickHouse.Result.string)
+                  <*> Database.ClickHouse.Result.column ((,,) <$> Database.ClickHouse.Result.float64 <*> Database.ClickHouse.Result.uint64 <*> Database.ClickHouse.Result.string)
+                  <*> Database.ClickHouse.Result.column ((,) <$> Database.ClickHouse.Result.bool <*> Database.ClickHouse.Result.int64)
+                  <*> Database.ClickHouse.Result.column (Database.ClickHouse.Result.array ((,) <$> Database.ClickHouse.Result.string <*> Database.ClickHouse.Result.int32))
               )
           )
           ()
@@ -1713,6 +1733,10 @@ data WideRow = WideRow
     col_global_tag_user :: Int64,
     col_global_tag_id :: Int64,
     col_global_tag_updated_at :: UTCTime,
-    col_count :: Int64
+    col_count :: Int64,
+    col_tuple2 :: (Int32, Text),
+    col_tuple3 :: (Double, Word64, Text),
+    col_tuple2b :: (Bool, Int64),
+    col_array_tuple :: Data.Vector.Vector (Text, Int32)
   }
   deriving (Eq, Show)
