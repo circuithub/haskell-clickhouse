@@ -138,6 +138,8 @@ test-suite clickhouse-client-test
   build-depends:
     , base
     , clickhouse-client-rowbinary
+    , contravariant
+    , resourcet
     , tasty
     , tasty-hunit
     , testcontainers

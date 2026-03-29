@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Control.Monad.Trans.Resource qualified
 import Data.Foldable (toList)
 import Data.Functor.Contravariant (($<))
 import Data.HashMap.Strict (HashMap)
@@ -7,13 +8,17 @@ import Data.HashMap.Strict qualified
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Text (Text)
 import Data.Text qualified
+import Data.Text.Lazy qualified
+import Data.Text.Lazy.Builder qualified
 import Data.Typeable (Typeable)
 import Data.Typeable qualified
 import Data.Vector qualified
 import Data.Word (Word8, Word16, Word32, Word64)
 import Database.ClickHouse qualified
+import Database.ClickHouse.Insert qualified
 import Database.ClickHouse.Params qualified
 import Database.ClickHouse.Result qualified
+import Database.ClickHouse.Value qualified
 import Test.Tasty qualified
 import Test.Tasty.HUnit (testCase, (@=?))
 import TestContainers qualified
@@ -53,7 +58,8 @@ tests newConnection =
     [ Test.Tasty.testGroup "Primitive data types" (primitives newConnection),
       Test.Tasty.testGroup "Nullable data types" (nullables newConnection),
       Test.Tasty.testGroup "Array data types" (arrays newConnection),
-      Test.Tasty.testGroup "Map data types" (maps newConnection)
+      Test.Tasty.testGroup "Map data types" (maps newConnection),
+      Test.Tasty.testGroup "Value insert" (valueInserts newConnection)
     ]
 
 data PrimitiveTestCase
@@ -750,4 +756,277 @@ mapTestCases =
           mapExpected = Data.HashMap.Strict.fromList [("present", Just 42), ("also", Just (99 :: Word32))]
         }
     )
+  ]
+
+-- ---------------------------------------------------------------------------
+-- Value insert tests
+-- ---------------------------------------------------------------------------
+
+-- | Helper to create a table, insert a single row using Value, and read it back.
+insertAndReadOne ::
+  Database.ClickHouse.Connection ->
+  Text ->
+  Text ->
+  Database.ClickHouse.Value.Value a ->
+  Database.ClickHouse.Result.Column b ->
+  a ->
+  IO b
+insertAndReadOne connection tableName columnDef valueEncoder resultDecoder row = do
+  -- Create table
+  Database.ClickHouse.runQuery
+    connection
+    ("CREATE TABLE IF NOT EXISTS " <> tableName <> " (val " <> columnDef <> ") ENGINE = Memory")
+    mempty
+    Database.ClickHouse.Result.noResult
+    ()
+
+  -- Insert single row
+  let ins = Database.ClickHouse.Insert.insert tableName ["val"] valueEncoder
+  Control.Monad.Trans.Resource.runResourceT $
+    Database.ClickHouse.runInsert
+      connection
+      (Data.Text.Lazy.toStrict (Data.Text.Lazy.Builder.toLazyText (Database.ClickHouse.Insert.renderInsert ins)))
+      mempty
+      valueEncoder
+      ()
+      [row]
+
+  -- Read back
+  result <-
+    Database.ClickHouse.runQuery
+      connection
+      ("SELECT val FROM " <> tableName)
+      mempty
+      (Database.ClickHouse.singleRow (Database.ClickHouse.Result.column resultDecoder))
+      ()
+
+  -- Drop table
+  Database.ClickHouse.runQuery
+    connection
+    ("DROP TABLE " <> tableName)
+    mempty
+    Database.ClickHouse.Result.noResult
+    ()
+
+  pure result
+
+valueInserts :: IO Database.ClickHouse.Connection -> [Test.Tasty.TestTree]
+valueInserts newConnection =
+  [ Test.Tasty.testGroup
+      "Primitives"
+      [ testCase "UInt8" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_uint8" "UInt8" Database.ClickHouse.Value.uint8 Database.ClickHouse.Result.uint8 (42 :: Word8)
+          (42 :: Word8) @=? result,
+        testCase "UInt16" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_uint16" "UInt16" Database.ClickHouse.Value.uint16 Database.ClickHouse.Result.uint16 (1000 :: Word16)
+          (1000 :: Word16) @=? result,
+        testCase "UInt32" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_uint32" "UInt32" Database.ClickHouse.Value.uint32 Database.ClickHouse.Result.uint32 (100000 :: Word32)
+          (100000 :: Word32) @=? result,
+        testCase "UInt64" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_uint64" "UInt64" Database.ClickHouse.Value.uint64 Database.ClickHouse.Result.uint64 (1000000 :: Word64)
+          (1000000 :: Word64) @=? result,
+        testCase "Int8" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_int8" "Int8" Database.ClickHouse.Value.int8 Database.ClickHouse.Result.int8 (-42 :: Int8)
+          (-42 :: Int8) @=? result,
+        testCase "Int16" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_int16" "Int16" Database.ClickHouse.Value.int16 Database.ClickHouse.Result.int16 (-1000 :: Int16)
+          (-1000 :: Int16) @=? result,
+        testCase "Int32" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_int32" "Int32" Database.ClickHouse.Value.int32 Database.ClickHouse.Result.int32 (-100000 :: Int32)
+          (-100000 :: Int32) @=? result,
+        testCase "Int64" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_int64" "Int64" Database.ClickHouse.Value.int64 Database.ClickHouse.Result.int64 (-1000000 :: Int64)
+          (-1000000 :: Int64) @=? result,
+        testCase "Float32" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_float32" "Float32" Database.ClickHouse.Value.float32 Database.ClickHouse.Result.float32 (1.5 :: Float)
+          (1.5 :: Float) @=? result,
+        testCase "Float64" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_float64" "Float64" Database.ClickHouse.Value.float64 Database.ClickHouse.Result.float64 (2.5 :: Double)
+          (2.5 :: Double) @=? result,
+        testCase "String" $ do
+          connection <- newConnection
+          result <- insertAndReadOne connection "test_val_string" "String" Database.ClickHouse.Value.string Database.ClickHouse.Result.string ("hello こんにちは" :: Text)
+          ("hello こんにちは" :: Text) @=? result
+      ],
+    Test.Tasty.testGroup
+      "Nullable"
+      [ testCase "Nullable(UInt32) Just" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_nullable_uint32_just"
+              "Nullable(UInt32)"
+              (Database.ClickHouse.Value.nullable Database.ClickHouse.Value.uint32)
+              (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint32)
+              (Just 42 :: Maybe Word32)
+          Just (42 :: Word32) @=? result,
+        testCase "Nullable(UInt32) Nothing" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_nullable_uint32_nothing"
+              "Nullable(UInt32)"
+              (Database.ClickHouse.Value.nullable Database.ClickHouse.Value.uint32)
+              (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint32)
+              (Nothing :: Maybe Word32)
+          (Nothing :: Maybe Word32) @=? result,
+        testCase "Nullable(String) Just" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_nullable_string_just"
+              "Nullable(String)"
+              (Database.ClickHouse.Value.nullable Database.ClickHouse.Value.string)
+              (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.string)
+              (Just "hello" :: Maybe Text)
+          Just ("hello" :: Text) @=? result,
+        testCase "Nullable(String) Nothing" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_nullable_string_nothing"
+              "Nullable(String)"
+              (Database.ClickHouse.Value.nullable Database.ClickHouse.Value.string)
+              (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.string)
+              (Nothing :: Maybe Text)
+          (Nothing :: Maybe Text) @=? result
+      ],
+    Test.Tasty.testGroup
+      "Array"
+      [ testCase "Array(UInt32)" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_array_uint32"
+              "Array(UInt32)"
+              (Database.ClickHouse.Value.array Database.ClickHouse.Value.uint32)
+              (Database.ClickHouse.Result.array Database.ClickHouse.Result.uint32)
+              (Data.Vector.fromList [1, 2, 3 :: Word32])
+          Data.Vector.fromList [1, 2, 3 :: Word32] @=? result,
+        testCase "Array(UInt32) empty" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_array_uint32_empty"
+              "Array(UInt32)"
+              (Database.ClickHouse.Value.array Database.ClickHouse.Value.uint32)
+              (Database.ClickHouse.Result.array Database.ClickHouse.Result.uint32)
+              (Data.Vector.empty :: Data.Vector.Vector Word32)
+          (Data.Vector.empty :: Data.Vector.Vector Word32) @=? result,
+        testCase "Array(String)" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_array_string"
+              "Array(String)"
+              (Database.ClickHouse.Value.array Database.ClickHouse.Value.string)
+              (Database.ClickHouse.Result.array Database.ClickHouse.Result.string)
+              (Data.Vector.fromList ["hello", "world" :: Text])
+          Data.Vector.fromList ["hello", "world" :: Text] @=? result,
+        testCase "Array(Nullable(UInt32))" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_array_nullable"
+              "Array(Nullable(UInt32))"
+              (Database.ClickHouse.Value.array (Database.ClickHouse.Value.nullable Database.ClickHouse.Value.uint32))
+              (Database.ClickHouse.Result.array (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint32))
+              (Data.Vector.fromList [Just 1, Nothing, Just (3 :: Word32)])
+          Data.Vector.fromList [Just 1, Nothing, Just (3 :: Word32)] @=? result,
+        testCase "Array(Array(UInt32)) nested" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_array_nested"
+              "Array(Array(UInt32))"
+              (Database.ClickHouse.Value.array (Database.ClickHouse.Value.array Database.ClickHouse.Value.uint32))
+              (Database.ClickHouse.Result.array (Database.ClickHouse.Result.array Database.ClickHouse.Result.uint32))
+              ( Data.Vector.fromList
+                  [ Data.Vector.fromList [1, 2 :: Word32],
+                    Data.Vector.fromList [3, 4, 5],
+                    Data.Vector.empty
+                  ]
+              )
+          Data.Vector.fromList
+            [ Data.Vector.fromList [1, 2 :: Word32],
+              Data.Vector.fromList [3, 4, 5],
+              Data.Vector.empty
+            ]
+            @=? result
+      ],
+    Test.Tasty.testGroup
+      "Map"
+      [ testCase "Map(String, UInt32)" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_map_string_uint32"
+              "Map(String, UInt32)"
+              (Database.ClickHouse.Value.map Database.ClickHouse.Value.string Database.ClickHouse.Value.uint32)
+              (Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.uint32)
+              (Data.HashMap.Strict.fromList [("a", 1), ("b", 2), ("c", 3 :: Word32)])
+          Data.HashMap.Strict.fromList [("a", 1), ("b", 2), ("c", 3 :: Word32)] @=? result,
+        testCase "Map(String, String)" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_map_string_string"
+              "Map(String, String)"
+              (Database.ClickHouse.Value.map Database.ClickHouse.Value.string Database.ClickHouse.Value.string)
+              (Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.string)
+              (Data.HashMap.Strict.fromList [("name", "alice"), ("city", "tokyo" :: Text)])
+          Data.HashMap.Strict.fromList [("name", "alice"), ("city", "tokyo" :: Text)] @=? result,
+        testCase "Map(String, Array(UInt32))" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_map_array"
+              "Map(String, Array(UInt32))"
+              (Database.ClickHouse.Value.map Database.ClickHouse.Value.string (Database.ClickHouse.Value.array Database.ClickHouse.Value.uint32))
+              (Database.ClickHouse.Result.map Database.ClickHouse.Result.string (Database.ClickHouse.Result.array Database.ClickHouse.Result.uint32))
+              ( Data.HashMap.Strict.fromList
+                  [ ("a", Data.Vector.fromList [1, 2, 3 :: Word32]),
+                    ("b", Data.Vector.fromList [4, 5])
+                  ]
+              )
+          Data.HashMap.Strict.fromList
+            [ ("a", Data.Vector.fromList [1, 2, 3 :: Word32]),
+              ("b", Data.Vector.fromList [4, 5])
+            ]
+            @=? result,
+        testCase "empty Map(String, UInt32)" $ do
+          connection <- newConnection
+          result <-
+            insertAndReadOne
+              connection
+              "test_val_map_empty"
+              "Map(String, UInt32)"
+              (Database.ClickHouse.Value.map Database.ClickHouse.Value.string Database.ClickHouse.Value.uint32)
+              (Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.uint32)
+              (Data.HashMap.Strict.empty :: HashMap Text Word32)
+          (Data.HashMap.Strict.empty :: HashMap Text Word32) @=? result
+      ]
   ]
