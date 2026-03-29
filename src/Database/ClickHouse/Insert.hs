@@ -17,6 +17,11 @@ import Data.Text.Lazy.Builder qualified
 import Database.ClickHouse.Params (Param)
 import Database.ClickHouse.Value (Value)
 
+-- | Describes an @INSERT@ statement for a ClickHouse table.
+--
+-- @input@ is the type of query parameters and @a@ is the type of each row to
+-- be inserted. Construct with 'insert' and optionally modify with
+-- 'modifySettings'.
 data Insert input a = Insert
   { tableName :: Text,
     columnNames :: [Text],
@@ -25,10 +30,14 @@ data Insert input a = Insert
     settings :: [(Text, Text)]
   }
 
+-- | Create an 'Insert' for the given table name, column names, row encoder,
+-- and query parameters.
 insert :: Text -> [Text] -> Value a -> Param input -> Insert input a
 insert tableName columnNames encoder params =
   Insert {tableName, columnNames, encoder, params, settings = mempty}
 
+-- | Modify the ClickHouse settings attached to an 'Insert' statement.
+-- Settings are key-value pairs appended as a @SETTINGS@ clause.
 modifySettings :: ([(Text, Text)] -> [(Text, Text)]) -> Insert input a -> Insert input a
 modifySettings modify insert =
   insert {settings = modify (settings insert)}

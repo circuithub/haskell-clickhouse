@@ -1,3 +1,119 @@
+-- |
+-- = Connecting
+--
+-- @
+-- connection <-
+--   'newConnection'
+--     'ConnectionOptions'
+--       { url = \"http:\/\/localhost:8123\",
+--         database = Nothing,
+--         user = Nothing,
+--         password = Nothing,
+--         httpManager = Nothing
+--       }
+-- @
+--
+-- = Running queries
+--
+-- Use 'runQuery' with a SQL query, 'Database.ClickHouse.Params.Param' for
+-- parameters, and a 'Database.ClickHouse.Result.Result' to describe the
+-- expected output.
+--
+-- == Querying a single row
+--
+-- Use @{name:Type}@ placeholders in SQL and match them to parameters:
+--
+-- @
+-- import "Database.ClickHouse.Params" qualified as Params
+-- import "Database.ClickHouse.Result" qualified as Result
+--
+-- result <-
+--   'runQuery'
+--     connection
+--     \"SELECT { x : UInt64 }\"
+--     (Params.uint64 \"x\")
+--     ('Database.ClickHouse.Result.singleRow' (Result.column Result.uint64))
+--     42
+-- @
+--
+-- == Querying multiple columns
+--
+-- 'Database.ClickHouse.Result.Row' is 'Applicative', so combine columns with
+-- @\<$\>@ and @\<*\>@:
+--
+-- @
+-- result <-
+--   'runQuery'
+--     connection
+--     \"SELECT name, age FROM users WHERE id = { userId : UInt64 }\"
+--     (Params.uint64 \"userId\")
+--     ('Database.ClickHouse.Result.singleRow'
+--       ((,)
+--         \<$\> Result.column Result.string
+--         \<*\> Result.column Result.uint32))
+--     1
+-- @
+--
+-- == Querying many rows
+--
+-- @
+-- rows <-
+--   'runQuery'
+--     connection
+--     \"SELECT name FROM users\"
+--     'mempty'
+--     ('Database.ClickHouse.Result.manyRows' (Result.column Result.string))
+--     ()
+-- @
+--
+-- == Queries without parameters
+--
+-- Use 'mempty' for the parameters and @()@ for the input:
+--
+-- @
+-- 'runQuery' connection \"SELECT 1\" 'mempty' ('Database.ClickHouse.Result.noResult') ()
+-- @
+--
+-- = Inserting data
+--
+-- Build an 'Database.ClickHouse.Insert.Insert' describing the target table,
+-- columns, and row encoder, then run it with 'runInsert'.
+--
+-- == Inserting a single-column row
+--
+-- @
+-- import "Database.ClickHouse.Value" qualified as Value
+--
+-- let ins = 'Database.ClickHouse.Insert.insert' \"my_table\" [\"val\"] Value.uint32 'mempty'
+-- 'runInsert' connection ins () [1, 2, 3 :: Word32]
+-- @
+--
+-- == Inserting multi-column rows
+--
+-- Combine 'Database.ClickHouse.Value.Value' encoders with 'Data.Functor.Contravariant.contramap'
+-- and '<>':
+--
+-- @
+-- import Data.Functor.Contravariant ('Data.Functor.Contravariant.contramap')
+--
+-- let encoder =
+--       'Data.Functor.Contravariant.contramap' fst Value.int64
+--         \<\> 'Data.Functor.Contravariant.contramap' snd Value.string
+--
+-- let ins = 'Database.ClickHouse.Insert.insert' \"events\" [\"id\", \"name\"] encoder 'mempty'
+-- 'runInsert' connection ins () [(1, \"click\"), (2, \"view\")]
+-- @
+--
+-- == Inserting nullable and nested types
+--
+-- @
+-- let encoder =
+--       'Data.Functor.Contravariant.contramap' fst Value.string
+--         \<\> 'Data.Functor.Contravariant.contramap' snd (Value.nullable Value.uint32)
+--
+-- let ins = 'Database.ClickHouse.Insert.insert' \"users\" [\"name\", \"age\"] encoder 'mempty'
+-- 'runInsert' connection ins () [(\"alice\", Just 30), (\"bob\", Nothing)]
+-- @
 module Database.ClickHouse
   ( -- * Connection
     Connection,
@@ -52,6 +168,11 @@ import Database.ClickHouse.Value qualified
 import Network.HTTP.Client qualified
 import Network.HTTP.Types qualified
 
+-- | Execute an 'Database.ClickHouse.Insert.Insert' statement, streaming rows
+-- into ClickHouse.
+--
+-- The @values@ argument can be any type with a 'ToStreamIO' instance (e.g. a
+-- list or a 'Database.ClickHouse.Stream.Stream').
 runInsert ::
   (ToStreamIO value values) =>
   Connection ->
@@ -132,6 +253,10 @@ data PopperStep a
   | Yield [Data.ByteString.ByteString] (Stream IO a)
   | Done
 
+-- | Execute a query against ClickHouse and deserialize the response.
+--
+-- The query is a plain SQL 'Text'. Use @{name:Type}@ placeholders together
+-- with a 'Database.ClickHouse.Params.Param' to safely pass parameters.
 runQuery ::
   Connection ->
   Text ->

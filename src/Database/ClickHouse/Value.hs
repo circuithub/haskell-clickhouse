@@ -40,6 +40,12 @@ import Data.UUID qualified
 import Data.Word (Word16, Word32, Word64, Word8)
 import GHC.Exts qualified
 
+-- | An encoder that serializes a value of type @a@ for insertion into
+-- ClickHouse.
+--
+-- 'Value' is 'Contravariant' and 'Semigroup' — adapt encoders to different
+-- input types with 'contramap', and combine them sequentially with '<>' to
+-- build row encoders.
 newtype Value a = Value (a -> Data.ByteString.Builder.Builder)
   deriving newtype (Semigroup)
 

@@ -279,7 +279,11 @@ array (Column elem) = Column $ do
 {-# SPECIALIZE array :: (Data.Vector.Storable.Storable a) => Column a -> Column (Data.Vector.Storable.Vector a) #-}
 {-# SPECIALIZE array :: (Data.Vector.Unboxed.Unbox a) => Column a -> Column (Data.Vector.Unboxed.Vector a) #-}
 
--- | Handling and deserialization of the upstream response.
+-- | Describes how to deserialize the response of a ClickHouse query into a
+-- value of type @a@.
+--
+-- Use 'noResult', 'singleRow', 'singleRowMaybe', or 'manyRows' to construct
+-- a 'Result'.
 newtype Result a = Result
   { runResult ::
       -- Make the request to get to a response. This is passed explicitly
@@ -292,12 +296,15 @@ instance Functor Result where
   fmap f (Result run) = Result $ \request ->
     fmap f (run request)
 
+-- | Discard the query response. Use this for statements that don't return rows
+-- (e.g. @CREATE TABLE@, @DROP TABLE@).
 noResult :: Result ()
 noResult = Result $ \getResponse -> do
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \_response ->
     pure ()
 
--- | Query response is expected to contain exactly one row.
+-- | Expect exactly one row in the response. Throws 'EmptyResult' if no rows
+-- are returned, or 'UnexpectedResult' if more than one row is returned.
 singleRow :: Row a -> Result a
 singleRow row = Result $ \getResponse -> do
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \response -> do
@@ -318,7 +325,9 @@ singleRow row = Result $ \getResponse -> do
       )
 {-# INLINE singleRow #-}
 
--- | Query response is expected to contain either zero or one rows.
+-- | Expect zero or one rows in the response. Returns 'Nothing' when the
+-- response is empty. Throws 'UnexpectedResult' if more than one row is
+-- returned.
 singleRowMaybe :: Row a -> Result (Maybe a)
 singleRowMaybe row = Result $ \getResponse ->
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \response -> do
@@ -338,6 +347,7 @@ singleRowMaybe row = Result $ \getResponse ->
 
 data Growable v a = Growable !Int !(v a)
 
+-- | Collect all rows from the response into a 'Data.Vector.Vector'.
 manyRows :: Row a -> Result (Data.Vector.Vector a)
 manyRows row = Result $ \getResponse ->
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \response -> do

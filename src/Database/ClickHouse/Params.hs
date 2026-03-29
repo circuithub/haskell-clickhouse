@@ -33,8 +33,11 @@ import Data.Word (Word16, Word32, Word64, Word8)
 import Network.HTTP.Types qualified
 import Web.HttpApiData (ToHttpApiData (..))
 
--- | A combinator type that allows for building flexible serializers for query
--- parameter values.
+-- | A serializer for query parameters. @'Param' a@ describes how to turn a
+-- value of type @a@ into named query parameters for a ClickHouse query.
+--
+-- 'Param' is 'Contravariant', 'Semigroup', and 'Monoid' — combine multiple
+-- params with '<>' and adapt them to different input types with 'contramap'.
 newtype Param a = Param
   { runParam :: a -> [Network.HTTP.Types.QueryItem]
   }

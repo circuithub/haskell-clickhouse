@@ -48,8 +48,10 @@ foldStream step !acc stream =
     )
     (pure acc)
 
--- | Convert a streaming abstraction into a 'Stream IO'.
--- Follows the same pattern as Servant's @ToSourceIO@.
+-- | Convert a collection or streaming abstraction into a 'Stream IO'.
+--
+-- Instances are provided for lists and @'Stream' IO@ itself. Implement this
+-- class to support streaming from custom data sources in 'runInsert'.
 class ToStreamIO chunk a | a -> chunk where
   toStreamIO :: a -> Stream IO chunk
 
