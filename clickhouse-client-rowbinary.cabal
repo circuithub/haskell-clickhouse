@@ -47,7 +47,7 @@ category:        Database
 build-type:      Simple
 
 -- Extra doc files to be distributed with the package, such as a CHANGELOG or a README.
-extra-doc-files: CHANGELOG.md
+-- extra-doc-files: CHANGELOG.md
 
 -- Extra source files to be distributed with the package, such as examples, or a tutorial module.
 -- extra-source-files:
@@ -72,6 +72,7 @@ library
     Database.ClickHouse.Result
     Database.ClickHouse.Value
     Database.ClickHouse.Parser
+    Database.ClickHouse.Stream
 
   -- Modules included in this library but not exported.
   -- other-modules:
@@ -83,11 +84,8 @@ library
 
   -- Other library packages from which modules are imported.
   build-depends:
-    , aeson
     , base
-    , binary
     , bytestring
-    , conduit
     , containers
     , contravariant
     , exceptions
@@ -95,8 +93,6 @@ library
     , http-api-data
     , http-client
     , http-types
-    , resourcet
-    , safe-exceptions
     , text
     , time
     , unliftio
@@ -138,7 +134,13 @@ test-suite clickhouse-client-test
   build-depends:
     , base
     , clickhouse-client-rowbinary
+    , contravariant
+    , resourcet
     , tasty
     , tasty-hunit
     , testcontainers
     , text
+    , time
+    , unordered-containers
+    , uuid
+    , vector

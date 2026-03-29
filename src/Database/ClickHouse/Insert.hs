@@ -1,31 +1,48 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Database.ClickHouse.Insert where
+module Database.ClickHouse.Insert
+  ( Insert (..),
+    insert,
+    modifySettings,
+    renderInsert,
+  )
+where
 
 import Data.Foldable1 (intercalate1)
 import Data.List (intersperse)
 import Data.List.NonEmpty (nonEmpty)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder qualified
+import Database.ClickHouse.Params (Param)
 import Database.ClickHouse.Value (Value)
 
-data Insert a = Insert
+-- | Describes an @INSERT@ statement for a ClickHouse table.
+--
+-- @input@ is the type of query parameters and @a@ is the type of each row to
+-- be inserted. Construct with 'insert' and optionally modify with
+-- 'modifySettings'.
+data Insert input a = Insert
   { tableName :: Text,
     columnNames :: [Text],
     encoder :: Value a,
+    params :: Param input,
     settings :: [(Text, Text)]
   }
 
-insert :: Text -> [Text] -> Value a -> Insert a
-insert tableName columnNames encoder =
-  Insert {tableName, columnNames, encoder, settings = mempty}
+-- | Create an 'Insert' for the given table name, column names, row encoder,
+-- and query parameters.
+insert :: Text -> [Text] -> Value a -> Param input -> Insert input a
+insert tableName columnNames encoder params =
+  Insert {tableName, columnNames, encoder, params, settings = mempty}
 
-modifySettings :: ([(Text, Text)] -> [(Text, Text)]) -> Insert a -> Insert a
+-- | Modify the ClickHouse settings attached to an 'Insert' statement.
+-- Settings are key-value pairs appended as a @SETTINGS@ clause.
+modifySettings :: ([(Text, Text)] -> [(Text, Text)]) -> Insert input a -> Insert input a
 modifySettings modify insert =
   insert {settings = modify (settings insert)}
 
-renderInsert :: Insert a -> Data.Text.Lazy.Builder.Builder
+renderInsert :: Insert input a -> Data.Text.Lazy.Builder.Builder
 renderInsert Insert {..} =
   mconcat $
     intersperse
@@ -51,5 +68,8 @@ renderInsert Insert {..} =
       case nonEmpty settings of
         Nothing ->
           mempty
-        Just _settings ->
-          "SETTINGS"
+        Just settings ->
+          "SETTINGS "
+            <> intercalate1
+              ", "
+              (fmap (\(k, v) -> Data.Text.Lazy.Builder.fromText k <> " = " <> Data.Text.Lazy.Builder.fromText v) settings)

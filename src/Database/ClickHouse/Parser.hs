@@ -4,7 +4,6 @@
 module Database.ClickHouse.Parser
   ( Parser (..),
     ParseResult (..),
-    Stream (..),
     runParser,
     parseFromSource,
     word8,
@@ -33,6 +32,7 @@ import Data.Int
 import Data.Text (Text)
 import Data.Text.Foreign qualified
 import Data.Word
+import Database.ClickHouse.Stream qualified
 import Foreign.Ptr
 import Foreign.Storable
 import GHC.ByteOrder (ByteOrder (..), targetByteOrder)
@@ -106,31 +106,29 @@ runParser (Parser p) bs = unsafeDupablePerformIO $ do
       ParseFailure err -> return (ParseFailure err, bs)
       UnexpectedEndOfInput -> return (UnexpectedEndOfInput, bs)
 
-newtype Stream a = Stream (IO (Maybe (a, Stream a)))
-
-parseFromSource :: IO ByteString -> Parser a -> Stream (Either String a)
-parseFromSource source parser = Stream go0
+parseFromSource :: IO ByteString -> Parser a -> Database.ClickHouse.Stream.Stream IO (Either String a)
+parseFromSource source parser = go0
   where
-    go0 = do
+    go0 = Database.ClickHouse.Stream.Stream $ \yield done -> do
       chunk <- source
       if BS.null chunk
-        then pure Nothing
-        else go1 chunk
+        then done
+        else Database.ClickHouse.Stream.unStream (go1 chunk) yield done
 
-    go1 !acc = do
+    go1 !acc = Database.ClickHouse.Stream.Stream $ \yield done ->
       case runParser parser acc of
         (ParseSuccess _ result, remaining)
           | BS.null remaining ->
-              return $ Just (Right result, Stream go0)
+              yield (Right result) go0
           | otherwise ->
-              return $ Just (Right result, Stream (go1 remaining))
+              yield (Right result) (go1 remaining)
         (ParseFailure err, _) ->
-          return $ Just (Left err, Stream (return Nothing))
+          yield (Left err) Database.ClickHouse.Stream.empty
         (UnexpectedEndOfInput, _) -> do
           chunk <- source
           if BS.null chunk
-            then return $ Just (Left "unexpected end of input", Stream (return Nothing))
-            else go1 (acc <> chunk)
+            then yield (Left "unexpected end of input") Database.ClickHouse.Stream.empty
+            else Database.ClickHouse.Stream.unStream (go1 (acc <> chunk)) yield done
 
 checkBounds :: Int -> Parser a -> Parser a
 checkBounds n (Parser k) = Parser $ \end pos ->

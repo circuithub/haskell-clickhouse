@@ -16,19 +16,25 @@ module Database.ClickHouse.Value
     Database.ClickHouse.Value.bool,
     Database.ClickHouse.Value.map,
     array,
-    tuple2,
     dateTime,
     dateTime32,
     dateTime64,
     date,
     date32,
     nullable,
+    tuple,
+    tuple3,
+    tuple4,
+    tuple5,
+    tuple6,
+    tuple7,
   )
 where
 
 import Data.Bits qualified
 import Data.ByteString.Builder qualified
 import Data.Functor.Contravariant (Contravariant (..))
+import Data.Functor.Contravariant.Divisible (Decidable (..), Divisible (..))
 import Data.Int (Int16, Int32, Int64, Int8)
 import Data.Text (Text)
 import Data.Text.Encoding qualified
@@ -38,15 +44,35 @@ import Data.Time.Calendar qualified
 import Data.Time.Clock.POSIX qualified
 import Data.Time.Clock.System qualified
 import Data.UUID qualified
+import Data.Void (absurd)
 import Data.Word (Word16, Word32, Word64, Word8)
 import GHC.Exts qualified
 
+-- | An encoder that serializes a value of type @a@ for insertion into
+-- ClickHouse.
+--
+-- 'Value' is 'Contravariant' and 'Semigroup' — adapt encoders to different
+-- input types with 'contramap', and combine them sequentially with '<>' to
+-- build row encoders.
 newtype Value a = Value (a -> Data.ByteString.Builder.Builder)
   deriving newtype (Semigroup)
 
 instance Contravariant Value where
   contramap f (Value g) =
     Value (\x -> g (f x))
+
+instance Divisible Value where
+  divide f (Value g) (Value h) = Value $ \a ->
+    case f a of
+      (b, c) -> g b <> h c
+  conquer = Value $ \_ -> mempty
+
+instance Decidable Value where
+  lose f = Value $ \a -> absurd (f a)
+  choose f (Value g) (Value h) = Value $ \a ->
+    case f a of
+      Left b -> g b
+      Right c -> h c
 
 runValue :: Value a -> a -> Data.ByteString.Builder.Builder
 runValue (Value f) x = f x
@@ -96,16 +122,13 @@ uuid = Value $ \uuid ->
       Data.ByteString.Builder.word64LE lo <> Data.ByteString.Builder.word64LE hi
 {-# INLINE uuid #-}
 
-tuple2 :: Value a -> Value b -> Value (a, b)
-tuple2 (Value f) (Value g) = Value $ \(a, b) ->
-  encodeLEB128 2 <> f a <> g b
-{-# INLINE tuple2 #-}
-
 map :: (GHC.Exts.IsList f, GHC.Exts.Item f ~ (a, b)) => Value a -> Value b -> Value f
-map f g =
+map (Value f) (Value g) =
   contramap
     GHC.Exts.toList
-    (array (tuple2 f g))
+    (array tuple2)
+  where
+    tuple2 = Value $ \(a, b) -> f a <> g b
 {-# INLINE map #-}
 
 array :: (Foldable f) => Value a -> Value (f a)
@@ -146,7 +169,7 @@ dateTime32 = Value $ \time ->
 dateTime64 :: Value Data.Time.UTCTime
 dateTime64 = Value $ \time ->
   Data.ByteString.Builder.int64LE $!
-    round (Data.Time.Clock.POSIX.utcTimeToPOSIXSeconds time)
+    round (Data.Time.Clock.POSIX.utcTimeToPOSIXSeconds time * 1000)
 {-# INLINE dateTime64 #-}
 
 date :: Value Data.Time.Day
@@ -162,6 +185,30 @@ date32 = Value $ \date ->
     fromIntegral $
       date `Data.Time.Calendar.diffDays` Data.Time.Clock.System.systemEpochDay
 {-# INLINE date32 #-}
+
+tuple :: Value a -> Value b -> Value (a, b)
+tuple (Value f) (Value g) = Value $ \(a, b) -> f a <> g b
+{-# INLINE tuple #-}
+
+tuple3 :: Value a -> Value b -> Value c -> Value (a, b, c)
+tuple3 (Value f) (Value g) (Value h) = Value $ \(a, b, c) -> f a <> g b <> h c
+{-# INLINE tuple3 #-}
+
+tuple4 :: Value a -> Value b -> Value c -> Value d -> Value (a, b, c, d)
+tuple4 (Value f) (Value g) (Value h) (Value i) = Value $ \(a, b, c, d) -> f a <> g b <> h c <> i d
+{-# INLINE tuple4 #-}
+
+tuple5 :: Value a -> Value b -> Value c -> Value d -> Value e -> Value (a, b, c, d, e)
+tuple5 (Value f) (Value g) (Value h) (Value i) (Value j) = Value $ \(a, b, c, d, e) -> f a <> g b <> h c <> i d <> j e
+{-# INLINE tuple5 #-}
+
+tuple6 :: Value a -> Value b -> Value c -> Value d -> Value e -> Value f -> Value (a, b, c, d, e, f)
+tuple6 (Value va) (Value vb) (Value vc) (Value vd) (Value ve) (Value vf) = Value $ \(a, b, c, d, e, f) -> va a <> vb b <> vc c <> vd d <> ve e <> vf f
+{-# INLINE tuple6 #-}
+
+tuple7 :: Value a -> Value b -> Value c -> Value d -> Value e -> Value f -> Value g -> Value (a, b, c, d, e, f, g)
+tuple7 (Value va) (Value vb) (Value vc) (Value vd) (Value ve) (Value vf) (Value vg) = Value $ \(a, b, c, d, e, f, g) -> va a <> vb b <> vc c <> vd d <> ve e <> vf f <> vg g
+{-# INLINE tuple7 #-}
 
 encodeLEB128 :: Word64 -> Data.ByteString.Builder.Builder
 encodeLEB128 = go

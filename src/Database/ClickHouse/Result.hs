@@ -18,10 +18,10 @@ module Database.ClickHouse.Result
     -- * Row
     Row,
     column,
-    nullableColumn,
 
     -- * Column
     Column,
+    nullable,
     int8,
     uint8,
     int16,
@@ -76,6 +76,7 @@ import Data.Vector.Storable qualified
 import Data.Vector.Unboxed qualified
 import Data.Word (Word16, Word32, Word64, Word8)
 import Database.ClickHouse.Parser qualified
+import Database.ClickHouse.Stream qualified
 import GHC.TypeLits qualified
 import Network.HTTP.Client qualified
 
@@ -119,10 +120,10 @@ instance Applicative Row where
 column :: Column a -> Row a
 column (Column get) = Row 1 get
 
-nullableColumn :: Column a -> Row (Maybe a)
-nullableColumn (Column get) = Row 1 $ do
+nullable :: Column a -> Column (Maybe a)
+nullable (Column get) = Column $ do
   w <- Database.ClickHouse.Parser.word8
-  if w > 0
+  if w /= 0
     then pure Nothing
     else fmap Just get
 
@@ -241,7 +242,7 @@ dateTime32 =
 
 dateTime64 :: Column Data.Time.UTCTime
 dateTime64 = Column $ do
-  (\time -> Data.Time.Clock.POSIX.posixSecondsToUTCTime (fromIntegral time))
+  (\time -> Data.Time.Clock.POSIX.posixSecondsToUTCTime (fromIntegral time / 1000))
     <$!> Database.ClickHouse.Parser.int64le
 {-# INLINE dateTime64 #-}
 
@@ -278,7 +279,11 @@ array (Column elem) = Column $ do
 {-# SPECIALIZE array :: (Data.Vector.Storable.Storable a) => Column a -> Column (Data.Vector.Storable.Vector a) #-}
 {-# SPECIALIZE array :: (Data.Vector.Unboxed.Unbox a) => Column a -> Column (Data.Vector.Unboxed.Vector a) #-}
 
--- | Handling and deserialization of the upstream response.
+-- | Describes how to deserialize the response of a ClickHouse query into a
+-- value of type @a@.
+--
+-- Use 'noResult', 'singleRow', 'singleRowMaybe', or 'manyRows' to construct
+-- a 'Result'.
 newtype Result a = Result
   { runResult ::
       -- Make the request to get to a response. This is passed explicitly
@@ -291,12 +296,15 @@ instance Functor Result where
   fmap f (Result run) = Result $ \request ->
     fmap f (run request)
 
+-- | Discard the query response. Use this for statements that don't return rows
+-- (e.g. @CREATE TABLE@, @DROP TABLE@).
 noResult :: Result ()
 noResult = Result $ \getResponse -> do
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \_response ->
     pure ()
 
--- | Query response is expected to contain exactly one row.
+-- | Expect exactly one row in the response. Throws 'EmptyResult' if no rows
+-- are returned, or 'UnexpectedResult' if more than one row is returned.
 singleRow :: Row a -> Result a
 singleRow row = Result $ \getResponse -> do
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \response -> do
@@ -317,7 +325,9 @@ singleRow row = Result $ \getResponse -> do
       )
 {-# INLINE singleRow #-}
 
--- | Query response is expected to contain either zero or one rows.
+-- | Expect zero or one rows in the response. Returns 'Nothing' when the
+-- response is empty. Throws 'UnexpectedResult' if more than one row is
+-- returned.
 singleRowMaybe :: Row a -> Result (Maybe a)
 singleRowMaybe row = Result $ \getResponse ->
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \response -> do
@@ -337,6 +347,7 @@ singleRowMaybe row = Result $ \getResponse ->
 
 data Growable v a = Growable !Int !(v a)
 
+-- | Collect all rows from the response into a 'Data.Vector.Vector'.
 manyRows :: Row a -> Result (Data.Vector.Vector a)
 manyRows row = Result $ \getResponse ->
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \response -> do
@@ -386,17 +397,15 @@ data Fold input output where
 
 runDecoder :: IO Data.ByteString.ByteString -> Row a -> Fold a b -> IO b
 runDecoder source (Row _ parser) (Fold start step stop) = do
-  start <- start
-  go start (Database.ClickHouse.Parser.parseFromSource source parser)
-  where
-    go !state (Database.ClickHouse.Parser.Stream getNextElement) = do
-      element <- getNextElement
-      case element of
-        Just (Right x, getNextElement) -> do
-          state <- step x state
-          go state getNextElement
-        Just (Left error, _getNextElement) ->
-          throwIO (RowParseError error)
-        Nothing ->
-          stop state
+  state <- start
+  let stream = Database.ClickHouse.Parser.parseFromSource source parser
+  Database.ClickHouse.Stream.foldStream
+    ( \state element ->
+        case element of
+          Right x -> step x state
+          Left err -> throwIO (RowParseError err)
+    )
+    state
+    stream
+    >>= stop
 {-# INLINE runDecoder #-}

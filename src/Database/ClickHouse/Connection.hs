@@ -7,7 +7,7 @@ module Database.ClickHouse.Connection
   )
 where
 
-import Control.Exception.Safe (MonadThrow)
+import Control.Monad.Catch (MonadThrow)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Functor ((<&>))
 import Data.Maybe (catMaybes)
@@ -17,19 +17,29 @@ import Data.Text.Encoding qualified
 import Network.HTTP.Client (Request (..))
 import Network.HTTP.Client qualified as HTTP
 
+-- | An open connection to a ClickHouse server.
 data Connection = Connection
   { baseRequest :: !HTTP.Request,
     manager :: !HTTP.Manager
   }
 
+-- | Options for establishing a 'Connection' to a ClickHouse server.
+--
+-- All fields except 'url' are optional.
 data ConnectionOptions = ConnectionOptions
-  { url :: !Text,
+  { -- | Base URL of the ClickHouse server (e.g. @\"http://localhost:8123\"@).
+    url :: !Text,
+    -- | Database name to use.
     database :: !(Maybe Text),
+    -- | User name for authentication.
     user :: !(Maybe Text),
+    -- | Password for authentication.
     password :: !(Maybe Text),
+    -- | Optional pre-existing connection manager. When 'Nothing', a new one is created.
     httpManager :: !(Maybe HTTP.Manager)
   }
 
+-- | Create a new 'Connection' from the given 'ConnectionOptions'.
 newConnection :: (MonadThrow m, MonadIO m) => ConnectionOptions -> m Connection
 newConnection ConnectionOptions {..} = do
   request <- HTTP.parseRequest (Data.Text.unpack url)

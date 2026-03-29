@@ -16,6 +16,7 @@ module Database.ClickHouse.Params
     Database.ClickHouse.Params.bool,
     uuid,
     day,
+    utcTime,
 
     -- * Running 'Param'
     runParam,
@@ -24,16 +25,19 @@ where
 
 import Data.Functor.Contravariant (Contravariant (..))
 import Data.Int (Int16, Int32, Int64, Int8)
-import Data.Text (Text)
+import Data.Text (Text, pack)
 import Data.Text.Encoding (encodeUtf8)
-import Data.Time (Day)
+import Data.Time (Day, UTCTime, defaultTimeLocale, formatTime)
 import Data.UUID (UUID)
 import Data.Word (Word16, Word32, Word64, Word8)
 import Network.HTTP.Types qualified
 import Web.HttpApiData (ToHttpApiData (..))
 
--- | A combinator type that allows for building flexible serializers for query
--- parameter values.
+-- | A serializer for query parameters. @'Param' a@ describes how to turn a
+-- value of type @a@ into named query parameters for a ClickHouse query.
+--
+-- 'Param' is 'Contravariant', 'Semigroup', and 'Monoid' — combine multiple
+-- params with '<>' and adapt them to different input types with 'contramap'.
 newtype Param a = Param
   { runParam :: a -> [Network.HTTP.Types.QueryItem]
   }
@@ -90,6 +94,11 @@ uuid = param
 
 day :: Text -> Param Day
 day = param
+
+utcTime :: Text -> Param UTCTime
+utcTime name = Param $ \value ->
+  let formatted = formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S" value
+   in [("param_" <> encodeUtf8 name, Just (encodeUtf8 (pack formatted)))]
 
 param :: (ToHttpApiData a) => Text -> Param a
 param name = Param $ \value ->
