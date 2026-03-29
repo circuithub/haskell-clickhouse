@@ -8,8 +8,6 @@ import Data.HashMap.Strict qualified
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Text (Text)
 import Data.Text qualified
-import Data.Text.Lazy qualified
-import Data.Text.Lazy.Builder qualified
 import Data.Typeable (Typeable)
 import Data.Typeable qualified
 import Data.Vector qualified
@@ -781,13 +779,11 @@ insertAndReadOne connection tableName columnDef valueEncoder resultDecoder row =
     ()
 
   -- Insert single row
-  let ins = Database.ClickHouse.Insert.insert tableName ["val"] valueEncoder
+  let ins = Database.ClickHouse.Insert.insert tableName ["val"] valueEncoder mempty
   Control.Monad.Trans.Resource.runResourceT $
     Database.ClickHouse.runInsert
       connection
-      (Data.Text.Lazy.toStrict (Data.Text.Lazy.Builder.toLazyText (Database.ClickHouse.Insert.renderInsert ins)))
-      mempty
-      valueEncoder
+      ins
       ()
       [row]
 

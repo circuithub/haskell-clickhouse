@@ -17,6 +17,11 @@ module Database.ClickHouse
     Database.ClickHouse.Result.singleRowMaybe,
     Database.ClickHouse.Result.manyRows,
 
+    -- * Insert
+    Database.ClickHouse.Insert.Insert,
+    Database.ClickHouse.Insert.insert,
+    Database.ClickHouse.Insert.modifySettings,
+
     -- * Running queries and insert
     runInsert,
     runQuery,
@@ -29,11 +34,14 @@ import Data.ByteString.Builder.Extra qualified
 import Data.ByteString.Lazy qualified
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Lazy qualified
+import Data.Text.Lazy.Builder qualified
 import Database.ClickHouse.Connection
   ( Connection (..),
     ConnectionOptions (..),
     newConnection,
   )
+import Database.ClickHouse.Insert qualified
 import Database.ClickHouse.Params qualified
 import Database.ClickHouse.Result qualified
 import Database.ClickHouse.Value qualified
@@ -43,14 +51,18 @@ import Network.HTTP.Types qualified
 runInsert ::
   (Foldable f) =>
   Connection ->
-  Text ->
-  Database.ClickHouse.Params.Param input ->
-  Database.ClickHouse.Value.Value value ->
+  Database.ClickHouse.Insert.Insert input value ->
   input ->
   f value ->
   Control.Monad.Trans.Resource.ResourceT IO ()
-runInsert connection query params value paramsInput inputs = do
-  let request :: Network.HTTP.Client.Request
+runInsert connection insert paramsInput inputs = do
+  let query =
+        Data.Text.Lazy.toStrict
+          ( Data.Text.Lazy.Builder.toLazyText
+              (Database.ClickHouse.Insert.renderInsert insert)
+          )
+
+      request :: Network.HTTP.Client.Request
       request =
         connection.baseRequest
           { Network.HTTP.Client.requestBody =
@@ -61,7 +73,7 @@ runInsert connection query params value paramsInput inputs = do
                         Data.ByteString.Builder.Extra.defaultChunkSize
                     )
                     mempty
-                    (foldMap (Database.ClickHouse.Value.runValue value) inputs)
+                    (foldMap (Database.ClickHouse.Value.runValue insert.encoder) inputs)
                 ),
             Network.HTTP.Client.queryString =
               Network.HTTP.Types.renderQuery
@@ -69,7 +81,7 @@ runInsert connection query params value paramsInput inputs = do
                 ( [ ("default_format", Just "RowBinary"),
                     ("query", Just (encodeUtf8 query))
                   ]
-                    <> Database.ClickHouse.Params.runParam params paramsInput
+                    <> Database.ClickHouse.Params.runParam insert.params paramsInput
                 )
           }
 
