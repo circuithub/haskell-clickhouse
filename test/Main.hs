@@ -2,10 +2,15 @@ module Main (main) where
 
 import Data.Foldable (toList)
 import Data.Functor.Contravariant (($<))
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified
+import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Text (Text)
 import Data.Text qualified
 import Data.Typeable (Typeable)
 import Data.Typeable qualified
+import Data.Vector qualified
+import Data.Word (Word8, Word16, Word32, Word64)
 import Database.ClickHouse qualified
 import Database.ClickHouse.Params qualified
 import Database.ClickHouse.Result qualified
@@ -45,7 +50,10 @@ tests :: IO Database.ClickHouse.Connection -> Test.Tasty.TestTree
 tests newConnection =
   Test.Tasty.testGroup
     "ClickHouse"
-    [ Test.Tasty.testGroup "Primitive data types" (primitives newConnection)
+    [ Test.Tasty.testGroup "Primitive data types" (primitives newConnection),
+      Test.Tasty.testGroup "Nullable data types" (nullables newConnection),
+      Test.Tasty.testGroup "Array data types" (arrays newConnection),
+      Test.Tasty.testGroup "Map data types" (maps newConnection)
     ]
 
 data PrimitiveTestCase
@@ -298,3 +306,448 @@ primitives newConnection =
 
     selectNX n type_ =
       "SELECT arrayJoin([" <> Data.Text.intercalate "," (replicate n ("{ x : " <> type_ <> "}")) <> "])"
+
+-- ---------------------------------------------------------------------------
+-- Nullable tests
+-- ---------------------------------------------------------------------------
+
+data NullableTestCase
+  = forall a.
+  (Eq a, Show a, Typeable a) =>
+  NullableTestCase
+  { nullableType :: Text,
+    nullableParam :: Text -> Database.ClickHouse.Params.Param a,
+    nullableResult :: Database.ClickHouse.Result.Column (Maybe a),
+    nullableExpected :: Maybe a
+  }
+
+nullableTestCases :: [NullableTestCase]
+nullableTestCases =
+  concat
+    [ -- Nullable strings: Just values and Nothing
+      [ NullableTestCase
+          { nullableType = "Nullable(String)",
+            nullableParam = Database.ClickHouse.Params.string,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.string,
+            nullableExpected = Just "hello"
+          },
+        NullableTestCase
+          { nullableType = "Nullable(String)",
+            nullableParam = Database.ClickHouse.Params.string,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.string,
+            nullableExpected = Just ""
+          }
+      ],
+      -- Nullable integers: Just values
+      [ NullableTestCase
+          { nullableType = "Nullable(UInt8)",
+            nullableParam = Database.ClickHouse.Params.uint8,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint8,
+            nullableExpected = Just 42
+          },
+        NullableTestCase
+          { nullableType = "Nullable(UInt16)",
+            nullableParam = Database.ClickHouse.Params.uint16,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint16,
+            nullableExpected = Just 1000
+          },
+        NullableTestCase
+          { nullableType = "Nullable(UInt32)",
+            nullableParam = Database.ClickHouse.Params.uint32,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint32,
+            nullableExpected = Just 100000
+          },
+        NullableTestCase
+          { nullableType = "Nullable(UInt64)",
+            nullableParam = Database.ClickHouse.Params.uint64,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint64,
+            nullableExpected = Just 1000000
+          },
+        NullableTestCase
+          { nullableType = "Nullable(Int8)",
+            nullableParam = Database.ClickHouse.Params.int8,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.int8,
+            nullableExpected = Just (-1)
+          },
+        NullableTestCase
+          { nullableType = "Nullable(Int16)",
+            nullableParam = Database.ClickHouse.Params.int16,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.int16,
+            nullableExpected = Just (-100)
+          },
+        NullableTestCase
+          { nullableType = "Nullable(Int32)",
+            nullableParam = Database.ClickHouse.Params.int32,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.int32,
+            nullableExpected = Just (-100000)
+          },
+        NullableTestCase
+          { nullableType = "Nullable(Int64)",
+            nullableParam = Database.ClickHouse.Params.int64,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.int64,
+            nullableExpected = Just (-1000000)
+          }
+      ],
+      -- Nullable Date
+      [ NullableTestCase
+          { nullableType = "Nullable(Date)",
+            nullableParam = Database.ClickHouse.Params.day,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.date,
+            nullableExpected = Just (read "2024-01-31")
+          },
+        NullableTestCase
+          { nullableType = "Nullable(Date32)",
+            nullableParam = Database.ClickHouse.Params.day,
+            nullableResult = Database.ClickHouse.Result.nullable Database.ClickHouse.Result.date32,
+            nullableExpected = Just (read "2024-01-31")
+          }
+      ]
+    ]
+
+nullables :: IO Database.ClickHouse.Connection -> [Test.Tasty.TestTree]
+nullables newConnection =
+  -- Tests for Just values using parameterized queries
+  [ Test.Tasty.testGroup
+      (show nullableExpected <> "::" <> Data.Text.unpack nullableType)
+      [ testCase "singleRow" $ do
+          connection <- newConnection
+          result <-
+            Database.ClickHouse.runQuery
+              connection
+              ("SELECT { x : " <> nullableType <> "}")
+              (nullableParam "x")
+              (Database.ClickHouse.singleRow (Database.ClickHouse.Result.column nullableResult))
+              expected
+          nullableExpected @=? result
+      ]
+    | NullableTestCase {..} <- nullableTestCases,
+      Just expected <- [nullableExpected]
+  ]
+    <>
+    -- Tests for NULL values using literal SQL (can't pass NULL via params easily)
+    [ Test.Tasty.testGroup
+        ("NULL::" <> Data.Text.unpack type_)
+        [ testCase "singleRow" $ do
+            connection <- newConnection
+            result <-
+              Database.ClickHouse.runQuery
+                connection
+                ("SELECT NULL::" <> type_)
+                mempty
+                (Database.ClickHouse.singleRow (Database.ClickHouse.Result.column resultCol))
+                ()
+            Nothing @=? result
+        ]
+      | (type_, SomeColumn resultCol) <-
+          [ ("Nullable(UInt8)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint8)),
+            ("Nullable(UInt16)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint16)),
+            ("Nullable(UInt32)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint32)),
+            ("Nullable(UInt64)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint64)),
+            ("Nullable(Int8)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.int8)),
+            ("Nullable(Int16)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.int16)),
+            ("Nullable(Int32)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.int32)),
+            ("Nullable(Int64)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.int64)),
+            ("Nullable(String)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.string)),
+            ("Nullable(Date)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.date)),
+            ("Nullable(Date32)", SomeColumn (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.date32))
+          ]
+    ]
+
+data SomeColumn = forall a. (Eq a, Show a, Typeable a) => SomeColumn (Database.ClickHouse.Result.Column (Maybe a))
+
+-- ---------------------------------------------------------------------------
+-- Array tests
+-- ---------------------------------------------------------------------------
+
+data ArrayTestCase
+  = forall a.
+  (Eq a, Show a, Typeable a) =>
+  ArrayTestCase
+  { arrayQuery :: Text,
+    arrayResult :: Database.ClickHouse.Result.Column a,
+    arrayExpected :: a
+  }
+
+arrays :: IO Database.ClickHouse.Connection -> [Test.Tasty.TestTree]
+arrays newConnection =
+  [ Test.Tasty.testGroup
+      label
+      [ testCase "singleRow" $ do
+          connection <- newConnection
+          result <-
+            Database.ClickHouse.runQuery
+              connection
+              arrayQuery
+              mempty
+              (Database.ClickHouse.singleRow (Database.ClickHouse.Result.column arrayResult))
+              ()
+          arrayExpected @=? result
+      ]
+    | (label, ArrayTestCase {..}) <- arrayTestCases
+  ]
+
+arrayTestCases :: [(String, ArrayTestCase)]
+arrayTestCases =
+  [ -- Empty arrays
+    ( "empty Array(UInt32)",
+      ArrayTestCase
+        { arrayQuery = "SELECT []::Array(UInt32)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.uint32,
+          arrayExpected = Data.Vector.empty :: Data.Vector.Vector Word32
+        }
+    ),
+    ( "empty Array(String)",
+      ArrayTestCase
+        { arrayQuery = "SELECT []::Array(String)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.string,
+          arrayExpected = Data.Vector.empty :: Data.Vector.Vector Text
+        }
+    ),
+    -- Single element arrays
+    ( "singleton Array(UInt8)",
+      ArrayTestCase
+        { arrayQuery = "SELECT [42]::Array(UInt8)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.uint8,
+          arrayExpected = Data.Vector.fromList [42 :: Word8]
+        }
+    ),
+    ( "singleton Array(String)",
+      ArrayTestCase
+        { arrayQuery = "SELECT ['hello']::Array(String)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.string,
+          arrayExpected = Data.Vector.fromList ["hello" :: Text]
+        }
+    ),
+    -- Multiple element arrays
+    ( "Array(UInt8) [1,2,3]",
+      ArrayTestCase
+        { arrayQuery = "SELECT [1, 2, 3]::Array(UInt8)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.uint8,
+          arrayExpected = Data.Vector.fromList [1, 2, 3 :: Word8]
+        }
+    ),
+    ( "Array(UInt16) [0, 1000, 65535]",
+      ArrayTestCase
+        { arrayQuery = "SELECT [0, 1000, 65535]::Array(UInt16)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.uint16,
+          arrayExpected = Data.Vector.fromList [0, 1000, 65535 :: Word16]
+        }
+    ),
+    ( "Array(UInt32) [0, 100000, 4294967295]",
+      ArrayTestCase
+        { arrayQuery = "SELECT [0, 100000, 4294967295]::Array(UInt32)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.uint32,
+          arrayExpected = Data.Vector.fromList [0, 100000, 4294967295 :: Word32]
+        }
+    ),
+    ( "Array(UInt64) large values",
+      ArrayTestCase
+        { arrayQuery = "SELECT [0, 18446744073709551615]::Array(UInt64)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.uint64,
+          arrayExpected = Data.Vector.fromList [0, 18446744073709551615 :: Word64]
+        }
+    ),
+    ( "Array(Int8) [-128, 0, 127]",
+      ArrayTestCase
+        { arrayQuery = "SELECT [-128, 0, 127]::Array(Int8)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.int8,
+          arrayExpected = Data.Vector.fromList [-128, 0, 127 :: Int8]
+        }
+    ),
+    ( "Array(Int16) [-32768, 0, 32767]",
+      ArrayTestCase
+        { arrayQuery = "SELECT [-32768, 0, 32767]::Array(Int16)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.int16,
+          arrayExpected = Data.Vector.fromList [-32768, 0, 32767 :: Int16]
+        }
+    ),
+    ( "Array(Int32) [-2147483648, 0, 2147483647]",
+      ArrayTestCase
+        { arrayQuery = "SELECT [-2147483648, 0, 2147483647]::Array(Int32)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.int32,
+          arrayExpected = Data.Vector.fromList [-2147483648, 0, 2147483647 :: Int32]
+        }
+    ),
+    ( "Array(Int64) [-9223372036854775808, 0, 9223372036854775807]",
+      ArrayTestCase
+        { arrayQuery = "SELECT [-9223372036854775808, 0, 9223372036854775807]::Array(Int64)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.int64,
+          arrayExpected = Data.Vector.fromList [-9223372036854775808, 0, 9223372036854775807 :: Int64]
+        }
+    ),
+    ( "Array(String) multiple",
+      ArrayTestCase
+        { arrayQuery = "SELECT ['hello', 'world', 'clickhouse']::Array(String)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.string,
+          arrayExpected = Data.Vector.fromList ["hello", "world", "clickhouse" :: Text]
+        }
+    ),
+    ( "Array(String) unicode",
+      ArrayTestCase
+        { arrayQuery = "SELECT ['こんにちは', '😀😁']::Array(String)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.string,
+          arrayExpected = Data.Vector.fromList ["こんにちは", "😀😁" :: Text]
+        }
+    ),
+    ( "Array(Float32)",
+      ArrayTestCase
+        { arrayQuery = "SELECT [1.5, 2.5, 3.5]::Array(Float32)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.float32,
+          arrayExpected = Data.Vector.fromList [1.5, 2.5, 3.5 :: Float]
+        }
+    ),
+    ( "Array(Float64)",
+      ArrayTestCase
+        { arrayQuery = "SELECT [1.5, 2.5, 3.5]::Array(Float64)",
+          arrayResult = Database.ClickHouse.Result.array Database.ClickHouse.Result.float64,
+          arrayExpected = Data.Vector.fromList [1.5, 2.5, 3.5 :: Double]
+        }
+    ),
+    -- Nested arrays
+    ( "Array(Array(UInt32))",
+      ArrayTestCase
+        { arrayQuery = "SELECT [[1, 2], [3, 4, 5], []]::Array(Array(UInt32))",
+          arrayResult = Database.ClickHouse.Result.array (Database.ClickHouse.Result.array Database.ClickHouse.Result.uint32),
+          arrayExpected =
+            Data.Vector.fromList
+              [ Data.Vector.fromList [1, 2 :: Word32],
+                Data.Vector.fromList [3, 4, 5],
+                Data.Vector.empty
+              ]
+        }
+    ),
+    -- Array of Nullable
+    ( "Array(Nullable(UInt32))",
+      ArrayTestCase
+        { arrayQuery = "SELECT [1, NULL, 3]::Array(Nullable(UInt32))",
+          arrayResult = Database.ClickHouse.Result.array (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint32),
+          arrayExpected = Data.Vector.fromList [Just 1, Nothing, Just (3 :: Word32)]
+        }
+    ),
+    ( "Array(Nullable(String))",
+      ArrayTestCase
+        { arrayQuery = "SELECT ['hello', NULL, 'world']::Array(Nullable(String))",
+          arrayResult = Database.ClickHouse.Result.array (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.string),
+          arrayExpected = Data.Vector.fromList [Just "hello", Nothing, Just ("world" :: Text)]
+        }
+    )
+  ]
+
+-- ---------------------------------------------------------------------------
+-- Map tests
+-- ---------------------------------------------------------------------------
+
+data MapTestCase
+  = forall a.
+  (Eq a, Show a, Typeable a) =>
+  MapTestCase
+  { mapQuery :: Text,
+    mapResult :: Database.ClickHouse.Result.Column a,
+    mapExpected :: a
+  }
+
+maps :: IO Database.ClickHouse.Connection -> [Test.Tasty.TestTree]
+maps newConnection =
+  [ Test.Tasty.testGroup
+      label
+      [ testCase "singleRow" $ do
+          connection <- newConnection
+          result <-
+            Database.ClickHouse.runQuery
+              connection
+              mapQuery
+              mempty
+              (Database.ClickHouse.singleRow (Database.ClickHouse.Result.column mapResult))
+              ()
+          mapExpected @=? result
+      ]
+    | (label, MapTestCase {..}) <- mapTestCases
+  ]
+
+mapTestCases :: [(String, MapTestCase)]
+mapTestCases =
+  [ -- Empty map
+    ( "empty Map(String, UInt32)",
+      MapTestCase
+        { mapQuery = "SELECT map()::Map(String, UInt32)",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.uint32,
+          mapExpected = Data.HashMap.Strict.empty :: HashMap Text Word32
+        }
+    ),
+    -- Single entry maps
+    ( "singleton Map(String, UInt32)",
+      MapTestCase
+        { mapQuery = "SELECT map('key1', 42)::Map(String, UInt32)",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.uint32,
+          mapExpected = Data.HashMap.Strict.fromList [("key1", 42 :: Word32)]
+        }
+    ),
+    -- Multiple entries
+    ( "Map(String, UInt32) multiple entries",
+      MapTestCase
+        { mapQuery = "SELECT map('a', 1, 'b', 2, 'c', 3)::Map(String, UInt32)",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.uint32,
+          mapExpected = Data.HashMap.Strict.fromList [("a", 1), ("b", 2), ("c", 3 :: Word32)]
+        }
+    ),
+    -- Map(String, String)
+    ( "Map(String, String)",
+      MapTestCase
+        { mapQuery = "SELECT map('name', 'alice', 'city', 'tokyo')::Map(String, String)",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.string,
+          mapExpected = Data.HashMap.Strict.fromList [("name", "alice"), ("city", "tokyo" :: Text)]
+        }
+    ),
+    -- Map(String, Int64)
+    ( "Map(String, Int64)",
+      MapTestCase
+        { mapQuery = "SELECT map('neg', -100, 'zero', 0, 'pos', 100)::Map(String, Int64)",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.int64,
+          mapExpected = Data.HashMap.Strict.fromList [("neg", -100), ("zero", 0), ("pos", 100 :: Int64)]
+        }
+    ),
+    -- Map(UInt32, String) - non-string keys
+    ( "Map(UInt32, String)",
+      MapTestCase
+        { mapQuery = "SELECT map(1, 'one', 2, 'two', 3, 'three')::Map(UInt32, String)",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.uint32 Database.ClickHouse.Result.string,
+          mapExpected = Data.HashMap.Strict.fromList [(1, "one"), (2, "two"), (3, "three" :: Text)] :: HashMap Word32 Text
+        }
+    ),
+    -- Map(String, Float64)
+    ( "Map(String, Float64)",
+      MapTestCase
+        { mapQuery = "SELECT map('pi', 3.14, 'e', 2.72)::Map(String, Float64)",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.float64,
+          mapExpected = Data.HashMap.Strict.fromList [("pi", 3.14), ("e", 2.72 :: Double)]
+        }
+    ),
+    -- Map with unicode keys
+    ( "Map(String, UInt32) unicode keys",
+      MapTestCase
+        { mapQuery = "SELECT map('こんにちは', 1, '😀', 2)::Map(String, UInt32)",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string Database.ClickHouse.Result.uint32,
+          mapExpected = Data.HashMap.Strict.fromList [("こんにちは", 1), ("😀", 2 :: Word32)]
+        }
+    ),
+    -- Map(String, Array(UInt32)) - map with array values
+    ( "Map(String, Array(UInt32))",
+      MapTestCase
+        { mapQuery = "SELECT map('a', [1, 2, 3], 'b', [4, 5])::Map(String, Array(UInt32))",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string (Database.ClickHouse.Result.array Database.ClickHouse.Result.uint32),
+          mapExpected =
+            Data.HashMap.Strict.fromList
+              [ ("a", Data.Vector.fromList [1, 2, 3 :: Word32]),
+                ("b", Data.Vector.fromList [4, 5])
+              ]
+        }
+    ),
+    -- Map(String, Nullable(UInt32)) - map with nullable values
+    ( "Map(String, Nullable(UInt32))",
+      MapTestCase
+        { mapQuery = "SELECT map('present', 42, 'also', 99)::Map(String, Nullable(UInt32))",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint32),
+          mapExpected = Data.HashMap.Strict.fromList [("present", Just 42), ("also", Just (99 :: Word32))]
+        }
+    )
+  ]
