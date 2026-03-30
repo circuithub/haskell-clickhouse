@@ -1,5 +1,8 @@
+{-# LANGUAGE DataKinds #-}
+
 module Main (main) where
 
+import Data.ByteString qualified
 import Data.Foldable (toList)
 import Data.Functor.Contravariant (contramap, ($<))
 import Data.HashMap.Strict (HashMap)
@@ -17,6 +20,7 @@ import Data.Word (Word16, Word32, Word64, Word8)
 import Database.ClickHouse qualified
 import Database.ClickHouse.Params qualified
 import Database.ClickHouse.Result qualified
+import Database.ClickHouse.Result (FixedString (..))
 import Database.ClickHouse.Value qualified
 import Test.Tasty qualified
 import Test.Tasty.HUnit (testCase, (@=?))
@@ -58,6 +62,7 @@ tests newConnection =
       Test.Tasty.testGroup "Nullable data types" (nullables newConnection),
       Test.Tasty.testGroup "Array data types" (arrays newConnection),
       Test.Tasty.testGroup "Map data types" (maps newConnection),
+      Test.Tasty.testGroup "FixedString data types" (fixedStrings newConnection),
       Test.Tasty.testGroup "Value insert" (valueInserts newConnection),
       Test.Tasty.testGroup "Stress test roundtrip" (stressTests newConnection),
       Test.Tasty.testGroup "Wide table smoketest" (wideTableSmoketest newConnection)
@@ -807,6 +812,169 @@ mapTestCases =
               [ (("a", 1 :: Word32), (100 :: Int64, 1.5 :: Double)),
                 (("b", 2), (200, 2.5))
               ]
+        }
+    )
+  ]
+
+-- ---------------------------------------------------------------------------
+-- FixedString tests
+-- ---------------------------------------------------------------------------
+
+data FixedStringTestCase = forall a.
+  (Eq a, Show a, Typeable a) =>
+  FixedStringTestCase
+  { fixedStringQuery :: Text,
+    fixedStringResult :: Database.ClickHouse.Result.Column a,
+    fixedStringExpected :: a
+  }
+
+fixedStrings :: IO Database.ClickHouse.Connection -> [Test.Tasty.TestTree]
+fixedStrings newConnection =
+  [ Test.Tasty.testGroup
+      label
+      [ testCase "singleRow" $ do
+          connection <- newConnection
+          result <-
+            Database.ClickHouse.runQuery
+              connection
+              fixedStringQuery
+              mempty
+              (Database.ClickHouse.singleRow (Database.ClickHouse.Result.column fixedStringResult))
+              ()
+          fixedStringExpected @=? result
+      ]
+    | (label, FixedStringTestCase {..}) <- fixedStringTestCases
+  ]
+
+fixedStringTestCases :: [(String, FixedStringTestCase)]
+fixedStringTestCases =
+  [ -- Basic FixedString with exact length ASCII content
+    ( "FixedString(5) ascii",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString('hello', 5)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @5,
+          fixedStringExpected = FixedString "hello"
+        }
+    ),
+    -- FixedString with single character, rest is zero-padded
+    ( "FixedString(4) short content zero-padded",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString('a', 4)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @4,
+          fixedStringExpected = FixedString ("a" <> Data.ByteString.replicate 3 0)
+        }
+    ),
+    -- FixedString(1) single byte
+    ( "FixedString(1) single byte",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString('x', 1)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @1,
+          fixedStringExpected = FixedString "x"
+        }
+    ),
+    -- FixedString all zeros (empty string padded)
+    ( "FixedString(3) empty string zero-padded",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString('', 3)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @3,
+          fixedStringExpected = FixedString (Data.ByteString.replicate 3 0)
+        }
+    ),
+    -- FixedString with exact length (no padding needed)
+    ( "FixedString(10) exact length",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString('0123456789', 10)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @10,
+          fixedStringExpected = FixedString "0123456789"
+        }
+    ),
+    -- FixedString with binary-like content (hex bytes)
+    ( "FixedString(4) hex content",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString(unhex('DEADBEEF'), 4)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @4,
+          fixedStringExpected = FixedString (Data.ByteString.pack [0xDE, 0xAD, 0xBE, 0xEF])
+        }
+    ),
+    -- FixedString with UTF-8 multi-byte characters
+    -- 'é' is 2 bytes in UTF-8 (0xC3 0xA9), so FixedString(2) fits exactly
+    ( "FixedString(2) UTF-8 two-byte char",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString('é', 2)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @2,
+          fixedStringExpected = FixedString "\xC3\xA9"
+        }
+    ),
+    -- FixedString with UTF-8 content and zero padding
+    -- 'é' is 2 bytes, FixedString(5) means 3 zero-padding bytes
+    ( "FixedString(5) UTF-8 with padding",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString('é', 5)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @5,
+          fixedStringExpected = FixedString ("\xC3\xA9" <> Data.ByteString.replicate 3 0)
+        }
+    ),
+    -- FixedString large size
+    ( "FixedString(256) large",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString('abc', 256)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @256,
+          fixedStringExpected = FixedString ("abc" <> Data.ByteString.replicate 253 0)
+        }
+    ),
+    -- FixedString in Array
+    ( "Array(FixedString(3))",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT [toFixedString('abc', 3), toFixedString('xyz', 3)]::Array(FixedString(3))",
+          fixedStringResult = Database.ClickHouse.Result.array (Database.ClickHouse.Result.fixedString @3),
+          fixedStringExpected = Data.Vector.fromList [FixedString "abc", FixedString "xyz"]
+        }
+    ),
+    -- FixedString in Nullable
+    ( "Nullable(FixedString(3)) with value",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString('abc', 3)::Nullable(FixedString(3))",
+          fixedStringResult = Database.ClickHouse.Result.nullable (Database.ClickHouse.Result.fixedString @3),
+          fixedStringExpected = Just (FixedString "abc")
+        }
+    ),
+    ( "Nullable(FixedString(3)) NULL",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT NULL::Nullable(FixedString(3))",
+          fixedStringResult = Database.ClickHouse.Result.nullable (Database.ClickHouse.Result.fixedString @3),
+          fixedStringExpected = Nothing :: Maybe (Database.ClickHouse.Result.FixedString 3)
+        }
+    ),
+    -- FixedString with all 0xFF bytes
+    ( "FixedString(4) all 0xFF bytes",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString(unhex('FFFFFFFF'), 4)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @4,
+          fixedStringExpected = FixedString (Data.ByteString.replicate 4 0xFF)
+        }
+    ),
+    -- FixedString with all zero bytes
+    ( "FixedString(4) all zero bytes",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString(unhex('00000000'), 4)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @4,
+          fixedStringExpected = FixedString (Data.ByteString.replicate 4 0)
+        }
+    ),
+    -- FixedString with mixed ASCII and zero padding
+    ( "FixedString(8) partial fill",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT toFixedString('Hi!', 8)",
+          fixedStringResult = Database.ClickHouse.Result.fixedString @8,
+          fixedStringExpected = FixedString ("Hi!" <> Data.ByteString.replicate 5 0)
+        }
+    ),
+    -- Array of Nullable FixedString
+    ( "Array(Nullable(FixedString(2)))",
+      FixedStringTestCase
+        { fixedStringQuery = "SELECT [toFixedString('ab', 2), NULL, toFixedString('cd', 2)]::Array(Nullable(FixedString(2)))",
+          fixedStringResult = Database.ClickHouse.Result.array (Database.ClickHouse.Result.nullable (Database.ClickHouse.Result.fixedString @2)),
+          fixedStringExpected = Data.Vector.fromList [Just (FixedString "ab"), Nothing, Just (FixedString "cd")]
         }
     )
   ]

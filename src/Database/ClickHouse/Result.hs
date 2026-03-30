@@ -195,6 +195,7 @@ string = Column $ do
 {-# INLINE string #-}
 
 newtype FixedString (n :: GHC.TypeLits.Nat) = FixedString Data.ByteString.ByteString
+  deriving stock (Eq, Ord, Show)
 
 fixedString :: forall (n :: GHC.TypeLits.Nat). (GHC.TypeLits.KnownNat n) => Column (FixedString n)
 fixedString =
