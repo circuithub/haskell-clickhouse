@@ -14,7 +14,7 @@ where
 
 import Data.List.NonEmpty (NonEmpty, toList)
 import Data.Vector (Vector)
-import qualified Data.Vector as Vector
+import Data.Vector qualified as Vector
 
 -- | A CPS (Scott-encoded) stream type. Each step either yields an element
 -- and a tail, or signals the end of the stream.

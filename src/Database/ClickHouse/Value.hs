@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 module Database.ClickHouse.Value
   ( Value,
     runValue,
@@ -22,6 +24,7 @@ module Database.ClickHouse.Value
     date,
     date32,
     nullable,
+    fixedString,
     tuple,
     tuple3,
     tuple4,
@@ -46,7 +49,9 @@ import Data.Time.Clock.System qualified
 import Data.UUID qualified
 import Data.Void (absurd)
 import Data.Word (Word16, Word32, Word64, Word8)
+import Database.ClickHouse.Result (FixedString (..))
 import GHC.Exts qualified
+import GHC.TypeLits qualified
 
 -- | An encoder that serializes a value of type @a@ for insertion into
 -- ClickHouse.
@@ -143,6 +148,15 @@ string = Value $ \text ->
   encodeLEB128 (fromIntegral (Data.Text.Foreign.lengthWord8 text))
     <> Data.Text.Encoding.encodeUtf8Builder text
 {-# INLINE string #-}
+
+-- | Encode a 'FixedString'. Corresponds to ClickHouse @FixedString(n)@.
+--
+-- The inner 'Data.ByteString.ByteString' is written as-is (no length prefix),
+-- which matches the RowBinary wire format for @FixedString@.
+fixedString :: forall (n :: GHC.TypeLits.Nat). Value (FixedString n)
+fixedString = Value $ \(FixedString bs) ->
+  Data.ByteString.Builder.byteString bs
+{-# INLINE fixedString #-}
 
 -- | Encode a 'Data.UUID.UUID'. Corresponds to ClickHouse @UUID@.
 uuid :: Value Data.UUID.UUID

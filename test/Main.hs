@@ -19,8 +19,8 @@ import Data.Vector qualified
 import Data.Word (Word16, Word32, Word64, Word8)
 import Database.ClickHouse qualified
 import Database.ClickHouse.Params qualified
-import Database.ClickHouse.Result qualified
 import Database.ClickHouse.Result (FixedString (..))
+import Database.ClickHouse.Result qualified
 import Database.ClickHouse.Value qualified
 import Test.Tasty qualified
 import Test.Tasty.HUnit (testCase, (@=?))
