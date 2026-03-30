@@ -40,6 +40,18 @@ data ConnectionOptions = ConnectionOptions
   }
 
 -- | Create a new 'Connection' from the given 'ConnectionOptions'.
+--
+-- @
+-- connection <-
+--   'newConnection'
+--     'ConnectionOptions'
+--       { url = \"http:\/\/localhost:8123\",
+--         database = Nothing,
+--         user = Nothing,
+--         password = Nothing,
+--         httpManager = Nothing
+--       }
+-- @
 newConnection :: (MonadThrow m, MonadIO m) => ConnectionOptions -> m Connection
 newConnection ConnectionOptions {..} = do
   request <- HTTP.parseRequest (Data.Text.unpack url)

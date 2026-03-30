@@ -173,6 +173,16 @@ import Network.HTTP.Types qualified
 --
 -- The @values@ argument can be any type with a 'ToStreamIO' instance (e.g. a
 -- list or a 'Database.ClickHouse.Stream.Stream').
+--
+-- @
+-- import "Database.ClickHouse.Value" qualified as Value
+--
+-- let ins = 'Database.ClickHouse.Internal.Insert.insert' \"events\" [\"id\", \"name\"]
+--       ('Data.Functor.Contravariant.contramap' fst Value.int64
+--         '<>' 'Data.Functor.Contravariant.contramap' snd Value.string)
+--       'mempty'
+-- 'runInsert' connection ins () [(1, \"click\"), (2, \"view\")]
+-- @
 runInsert ::
   (ToStreamIO value values) =>
   Connection ->
@@ -257,6 +267,19 @@ data PopperStep a
 --
 -- The query is a plain SQL 'Text'. Use @{name:Type}@ placeholders together
 -- with a 'Database.ClickHouse.Params.Param' to safely pass parameters.
+--
+-- @
+-- import "Database.ClickHouse.Params" qualified as Params
+-- import "Database.ClickHouse.Result" qualified as Result
+--
+-- names <-
+--   'runQuery'
+--     connection
+--     \"SELECT name FROM users WHERE age > { minAge : UInt32 }\"
+--     (Params.uint32 \"minAge\")
+--     ('Database.ClickHouse.Result.manyRows' (Result.column Result.string))
+--     18
+-- @
 runQuery ::
   Connection ->
   Text ->

@@ -117,9 +117,19 @@ instance Applicative Row where
     Row (x + y) (getf <*> getx)
   {-# INLINE (<*>) #-}
 
+-- | Lift a 'Column' decoder into a 'Row'.
+--
+-- @
+-- 'column' 'uint64' :: 'Row' 'Data.Word.Word64'
+-- @
 column :: Column a -> Row a
 column (Column get) = Row 1 get
 
+-- | Decode a @Nullable(a)@ column.
+--
+-- @
+-- 'column' ('nullable' 'string') :: 'Row' ('Maybe' 'Data.Text.Text')
+-- @
 nullable :: Column a -> Column (Maybe a)
 nullable (Column get) = Column $ do
   w <- Database.ClickHouse.Internal.Parser.word8
@@ -130,46 +140,55 @@ nullable (Column get) = Column $ do
 newtype Column a = Column (Database.ClickHouse.Internal.Parser.Parser a)
   deriving newtype (Functor, Applicative)
 
+-- | Decode a ClickHouse @Int8@ column.
 int8 :: Column Int8
 int8 =
   Column Database.ClickHouse.Internal.Parser.int8
 {-# INLINE int8 #-}
 
+-- | Decode a ClickHouse @UInt8@ column.
 uint8 :: Column Word8
 uint8 =
   Column Database.ClickHouse.Internal.Parser.word8
 {-# INLINE uint8 #-}
 
+-- | Decode a ClickHouse @Int16@ column.
 int16 :: Column Int16
 int16 =
   Column Database.ClickHouse.Internal.Parser.int16le
 {-# INLINE int16 #-}
 
+-- | Decode a ClickHouse @UInt16@ column.
 uint16 :: Column Word16
 uint16 =
   Column Database.ClickHouse.Internal.Parser.word16le
 {-# INLINE uint16 #-}
 
+-- | Decode a ClickHouse @Int32@ column.
 int32 :: Column Int32
 int32 =
   Column Database.ClickHouse.Internal.Parser.int32le
 {-# INLINE int32 #-}
 
+-- | Decode a ClickHouse @UInt32@ column.
 uint32 :: Column Word32
 uint32 =
   Column Database.ClickHouse.Internal.Parser.word32le
 {-# INLINE uint32 #-}
 
+-- | Decode a ClickHouse @Int64@ column.
 int64 :: Column Int64
 int64 =
   Column Database.ClickHouse.Internal.Parser.int64le
 {-# INLINE int64 #-}
 
+-- | Decode a ClickHouse @UInt64@ column.
 uint64 :: Column Word64
 uint64 =
   Column Database.ClickHouse.Internal.Parser.word64le
 {-# INLINE uint64 #-}
 
+-- | Decode a ClickHouse @String@ column.
 string :: Column Text
 string = Column $ do
   len <- Database.ClickHouse.Internal.Parser.uLEB128
@@ -186,6 +205,7 @@ fixedString =
         fromIntegral (GHC.TypeLits.natVal (Proxy :: Proxy n))
 {-# INLINE fixedString #-}
 
+-- | Decode a ClickHouse @Date@ column.
 date :: Column Day
 date =
   Column $
@@ -194,6 +214,7 @@ date =
       <$!> Database.ClickHouse.Internal.Parser.int16le
 {-# INLINE date #-}
 
+-- | Decode a ClickHouse @Date32@ column.
 date32 :: Column Day
 date32 =
   Column $
@@ -202,16 +223,19 @@ date32 =
       <$!> Database.ClickHouse.Internal.Parser.int32le
 {-# INLINE date32 #-}
 
+-- | Decode a ClickHouse @Float32@ column.
 float32 :: Column Float
 float32 =
   Column Database.ClickHouse.Internal.Parser.float32le
 {-# INLINE float32 #-}
 
+-- | Decode a ClickHouse @Float64@ column.
 float64 :: Column Double
 float64 =
   Column Database.ClickHouse.Internal.Parser.float64le
 {-# INLINE float64 #-}
 
+-- | Decode a ClickHouse @Bool@ column.
 bool :: Column Bool
 bool =
   Column $
@@ -219,6 +243,7 @@ bool =
       <$!> Database.ClickHouse.Internal.Parser.word8
 {-# INLINE bool #-}
 
+-- | Decode a ClickHouse @UUID@ column.
 uuid :: Column Data.UUID.UUID
 uuid =
   Column $
@@ -227,10 +252,12 @@ uuid =
       <*> Database.ClickHouse.Internal.Parser.word64le
 {-# INLINE uuid #-}
 
+-- | Decode a ClickHouse @DateTime@ column. Alias for 'dateTime32'.
 dateTime :: Column Data.Time.UTCTime
 dateTime = dateTime32
 {-# INLINE dateTime #-}
 
+-- | Decode a ClickHouse @DateTime@ column (second precision).
 dateTime32 :: Column Data.Time.UTCTime
 dateTime32 =
   Column $ do
@@ -240,12 +267,18 @@ dateTime32 =
     pure utcTime
 {-# INLINE dateTime32 #-}
 
+-- | Decode a ClickHouse @DateTime64(3)@ column (millisecond precision).
 dateTime64 :: Column Data.Time.UTCTime
 dateTime64 = Column $ do
   (\time -> Data.Time.Clock.POSIX.posixSecondsToUTCTime (fromIntegral time / 1000))
     <$!> Database.ClickHouse.Internal.Parser.int64le
 {-# INLINE dateTime64 #-}
 
+-- | Decode a ClickHouse @Map(k, v)@ column.
+--
+-- @
+-- 'column' ('map' 'string' 'uint32') :: 'Row' ('HashMap' 'Data.Text.Text' 'Data.Word.Word32')
+-- @
 map :: (Hashable a) => Column a -> Column b -> Column (HashMap a b)
 map (Column getKey) (Column getValue) = Column $ do
   len <- Database.ClickHouse.Internal.Parser.uLEB128
@@ -259,6 +292,11 @@ map (Column getKey) (Column getValue) = Column $ do
       entries (n - 1) (Data.HashMap.Strict.insert key value acc)
 {-# INLINE map #-}
 
+-- | Decode a ClickHouse @Array(a)@ column.
+--
+-- @
+-- 'column' ('array' 'uint32') :: 'Row' ('Data.Vector.Vector' 'Data.Word.Word32')
+-- @
 array :: (Data.Vector.Generic.Vector v a) => Column a -> Column (v a)
 array (Column elem) = Column $ do
   len <-
@@ -298,6 +336,10 @@ instance Functor Result where
 
 -- | Discard the query response. Use this for statements that don't return rows
 -- (e.g. @CREATE TABLE@, @DROP TABLE@).
+--
+-- @
+-- 'Database.ClickHouse.runQuery' connection \"CREATE TABLE ...\" 'mempty' 'noResult' ()
+-- @
 noResult :: Result ()
 noResult = Result $ \getResponse -> do
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \_response ->
@@ -305,6 +347,10 @@ noResult = Result $ \getResponse -> do
 
 -- | Expect exactly one row in the response. Throws 'EmptyResult' if no rows
 -- are returned, or 'UnexpectedResult' if more than one row is returned.
+--
+-- @
+-- 'singleRow' ('column' 'uint64') :: 'Result' 'Data.Word.Word64'
+-- @
 singleRow :: Row a -> Result a
 singleRow row = Result $ \getResponse -> do
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \response -> do
@@ -328,6 +374,10 @@ singleRow row = Result $ \getResponse -> do
 -- | Expect zero or one rows in the response. Returns 'Nothing' when the
 -- response is empty. Throws 'UnexpectedResult' if more than one row is
 -- returned.
+--
+-- @
+-- 'singleRowMaybe' ('column' 'string') :: 'Result' ('Maybe' 'Data.Text.Text')
+-- @
 singleRowMaybe :: Row a -> Result (Maybe a)
 singleRowMaybe row = Result $ \getResponse ->
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \response -> do
@@ -348,6 +398,17 @@ singleRowMaybe row = Result $ \getResponse ->
 data Growable v a = Growable !Int !(v a)
 
 -- | Collect all rows from the response into a 'Data.Vector.Vector'.
+--
+-- @
+-- 'manyRows' ('column' 'string') :: 'Result' ('Data.Vector.Vector' 'Data.Text.Text')
+-- @
+--
+-- Or with multiple columns:
+--
+-- @
+-- 'manyRows' ((,) '<$>' 'column' 'string' '<*>' 'column' 'uint32')
+--   :: 'Result' ('Data.Vector.Vector' ('Data.Text.Text', 'Data.Word.Word32'))
+-- @
 manyRows :: Row a -> Result (Data.Vector.Vector a)
 manyRows row = Result $ \getResponse ->
   bracket (liftIO getResponse) (liftIO . Network.HTTP.Client.responseClose) $ \response -> do

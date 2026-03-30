@@ -32,12 +32,25 @@ data Insert input a = Insert
 
 -- | Create an 'Insert' for the given table name, column names, row encoder,
 -- and query parameters.
+--
+-- @
+-- import "Database.ClickHouse.Value" qualified as Value
+--
+-- 'insert' \"my_table\" [\"id\", \"name\"]
+--   ('Data.Functor.Contravariant.contramap' fst Value.int64
+--     '<>' 'Data.Functor.Contravariant.contramap' snd Value.string)
+--   'mempty'
+-- @
 insert :: Text -> [Text] -> Value a -> Param input -> Insert input a
 insert tableName columnNames encoder params =
   Insert {tableName, columnNames, encoder, params, settings = mempty}
 
 -- | Modify the ClickHouse settings attached to an 'Insert' statement.
 -- Settings are key-value pairs appended as a @SETTINGS@ clause.
+--
+-- @
+-- 'modifySettings' ((\"async_insert\", \"1\") :) myInsert
+-- @
 modifySettings :: ([(Text, Text)] -> [(Text, Text)]) -> Insert input a -> Insert input a
 modifySettings modify insert =
   insert {settings = modify (settings insert)}

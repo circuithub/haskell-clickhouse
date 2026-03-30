@@ -52,8 +52,13 @@ foldStream step !acc stream =
 
 -- | Convert a collection or streaming abstraction into a 'Stream IO'.
 --
--- Instances are provided for lists and @'Stream' IO@ itself. Implement this
--- class to support streaming from custom data sources in 'runInsert'.
+-- Instances are provided for lists, 'Data.List.NonEmpty.NonEmpty', and
+-- @'Stream' IO@ itself. Implement this class to support streaming from
+-- custom data sources in 'Database.ClickHouse.runInsert'.
+--
+-- @
+-- 'Database.ClickHouse.runInsert' connection ins () [1, 2, 3 :: 'Data.Word.Word32']
+-- @
 class ToStreamIO chunk a | a -> chunk where
   toStreamIO :: a -> Stream IO chunk
 
