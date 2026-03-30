@@ -15,7 +15,6 @@ import Data.UUID qualified
 import Data.Vector qualified
 import Data.Word (Word16, Word32, Word64, Word8)
 import Database.ClickHouse qualified
-import Database.ClickHouse.Insert qualified
 import Database.ClickHouse.Params qualified
 import Database.ClickHouse.Result qualified
 import Database.ClickHouse.Value qualified
@@ -835,7 +834,7 @@ insertAndReadOne connection tableName columnDef valueEncoder resultDecoder row =
     ()
 
   -- Insert single row
-  let ins = Database.ClickHouse.Insert.insert tableName ["val"] valueEncoder mempty
+  let ins = Database.ClickHouse.insert tableName ["val"] valueEncoder mempty
   Database.ClickHouse.runInsert
     connection
     ins
@@ -1127,7 +1126,7 @@ insertAndReadMany connection tableName columnDef valueEncoder resultDecoder rows
     ()
 
   -- Insert all rows
-  let ins = Database.ClickHouse.Insert.insert tableName ["val"] valueEncoder mempty
+  let ins = Database.ClickHouse.insert tableName ["val"] valueEncoder mempty
   Database.ClickHouse.runInsert
     connection
     ins
@@ -1254,7 +1253,7 @@ stressTests newConnection =
               <> contramap (\(_, b, _) -> b) Database.ClickHouse.Value.string
               <> contramap (\(_, _, c) -> c) (Database.ClickHouse.Value.nullable Database.ClickHouse.Value.uint32)
 
-      let ins = Database.ClickHouse.Insert.insert "stress_multi" ["a", "b", "c"] valueEncoder mempty
+      let ins = Database.ClickHouse.insert "stress_multi" ["a", "b", "c"] valueEncoder mempty
       Database.ClickHouse.runInsert
         connection
         ins
@@ -1527,7 +1526,7 @@ wideTableSmoketest newConnection =
               "col_array_tuple"
             ]
 
-      let ins = Database.ClickHouse.Insert.insert "wide_smoketest" columnNames valueEncoder mempty
+      let ins = Database.ClickHouse.insert "wide_smoketest" columnNames valueEncoder mempty
 
       let testUUID = case Data.UUID.fromString "a1b2c3d4-e5f6-7890-abcd-ef1234567890" of
             Just u -> u

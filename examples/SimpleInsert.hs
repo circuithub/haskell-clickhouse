@@ -4,7 +4,6 @@ module Main (main) where
 
 import Data.Functor.Contravariant (contramap)
 import Database.ClickHouse
-import Database.ClickHouse.Insert qualified as Insert
 import Database.ClickHouse.Value qualified as Value
 
 main :: IO ()
@@ -23,6 +22,6 @@ main = do
         contramap fst Value.uint32
           <> contramap snd Value.string
 
-      ins = Insert.insert "events" ["id", "name"] rowEncoder mempty
+      ins = insert "events" ["id", "name"] rowEncoder mempty
 
   runInsert connection ins () [(1, "signup"), (2, "purchase")]

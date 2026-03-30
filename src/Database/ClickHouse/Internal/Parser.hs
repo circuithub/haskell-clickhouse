@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Database.ClickHouse.Parser
+module Database.ClickHouse.Internal.Parser
   ( Parser (..),
     ParseResult (..),
     runParser,

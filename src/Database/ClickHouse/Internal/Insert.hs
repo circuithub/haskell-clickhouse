@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Database.ClickHouse.Insert
+module Database.ClickHouse.Internal.Insert
   ( Insert (..),
     insert,
     modifySettings,

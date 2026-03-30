@@ -49,11 +49,11 @@ library
   exposed-modules:
     Database.ClickHouse
     Database.ClickHouse.Connection
-    Database.ClickHouse.Insert
+    Database.ClickHouse.Internal.Insert
+    Database.ClickHouse.Internal.Parser
     Database.ClickHouse.Params
     Database.ClickHouse.Result
     Database.ClickHouse.Value
-    Database.ClickHouse.Parser
     Database.ClickHouse.Stream
 
   default-extensions:

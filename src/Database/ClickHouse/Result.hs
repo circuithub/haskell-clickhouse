@@ -75,7 +75,7 @@ import Data.Vector.Mutable qualified
 import Data.Vector.Storable qualified
 import Data.Vector.Unboxed qualified
 import Data.Word (Word16, Word32, Word64, Word8)
-import Database.ClickHouse.Parser qualified
+import Database.ClickHouse.Internal.Parser qualified
 import Database.ClickHouse.Stream qualified
 import GHC.TypeLits qualified
 import Network.HTTP.Client qualified
@@ -105,7 +105,7 @@ defaultFormat =
   "RowBinary"
 
 -- | @`Row a` deserializes an @a@ from a ClickHouse query result.
-data Row a = Row !Int (Database.ClickHouse.Parser.Parser a)
+data Row a = Row !Int (Database.ClickHouse.Internal.Parser.Parser a)
   deriving stock (Functor)
 
 instance Applicative Row where
@@ -122,58 +122,58 @@ column (Column get) = Row 1 get
 
 nullable :: Column a -> Column (Maybe a)
 nullable (Column get) = Column $ do
-  w <- Database.ClickHouse.Parser.word8
+  w <- Database.ClickHouse.Internal.Parser.word8
   if w /= 0
     then pure Nothing
     else fmap Just get
 
-newtype Column a = Column (Database.ClickHouse.Parser.Parser a)
+newtype Column a = Column (Database.ClickHouse.Internal.Parser.Parser a)
   deriving newtype (Functor, Applicative)
 
 int8 :: Column Int8
 int8 =
-  Column Database.ClickHouse.Parser.int8
+  Column Database.ClickHouse.Internal.Parser.int8
 {-# INLINE int8 #-}
 
 uint8 :: Column Word8
 uint8 =
-  Column Database.ClickHouse.Parser.word8
+  Column Database.ClickHouse.Internal.Parser.word8
 {-# INLINE uint8 #-}
 
 int16 :: Column Int16
 int16 =
-  Column Database.ClickHouse.Parser.int16le
+  Column Database.ClickHouse.Internal.Parser.int16le
 {-# INLINE int16 #-}
 
 uint16 :: Column Word16
 uint16 =
-  Column Database.ClickHouse.Parser.word16le
+  Column Database.ClickHouse.Internal.Parser.word16le
 {-# INLINE uint16 #-}
 
 int32 :: Column Int32
 int32 =
-  Column Database.ClickHouse.Parser.int32le
+  Column Database.ClickHouse.Internal.Parser.int32le
 {-# INLINE int32 #-}
 
 uint32 :: Column Word32
 uint32 =
-  Column Database.ClickHouse.Parser.word32le
+  Column Database.ClickHouse.Internal.Parser.word32le
 {-# INLINE uint32 #-}
 
 int64 :: Column Int64
 int64 =
-  Column Database.ClickHouse.Parser.int64le
+  Column Database.ClickHouse.Internal.Parser.int64le
 {-# INLINE int64 #-}
 
 uint64 :: Column Word64
 uint64 =
-  Column Database.ClickHouse.Parser.word64le
+  Column Database.ClickHouse.Internal.Parser.word64le
 {-# INLINE uint64 #-}
 
 string :: Column Text
 string = Column $ do
-  len <- Database.ClickHouse.Parser.uLEB128
-  Database.ClickHouse.Parser.text (fromIntegral len)
+  len <- Database.ClickHouse.Internal.Parser.uLEB128
+  Database.ClickHouse.Internal.Parser.text (fromIntegral len)
 {-# INLINE string #-}
 
 newtype FixedString (n :: GHC.TypeLits.Nat) = FixedString Data.ByteString.ByteString
@@ -182,7 +182,7 @@ fixedString :: forall (n :: GHC.TypeLits.Nat). (GHC.TypeLits.KnownNat n) => Colu
 fixedString =
   Column $
     fmap FixedString $
-      Database.ClickHouse.Parser.byteString $
+      Database.ClickHouse.Internal.Parser.byteString $
         fromIntegral (GHC.TypeLits.natVal (Proxy :: Proxy n))
 {-# INLINE fixedString #-}
 
@@ -191,7 +191,7 @@ date =
   Column $
     -- Data.Time.Clock.System.systemEpochDay is the day of the epoch of SystemTime, 1970-01-01
     (\days -> fromIntegral days `Data.Time.Calendar.addDays` Data.Time.Clock.System.systemEpochDay)
-      <$!> Database.ClickHouse.Parser.int16le
+      <$!> Database.ClickHouse.Internal.Parser.int16le
 {-# INLINE date #-}
 
 date32 :: Column Day
@@ -199,32 +199,32 @@ date32 =
   Column $
     -- Data.Time.Clock.System.systemEpochDay is the day of the epoch of SystemTime, 1970-01-01
     (\days -> fromIntegral days `Data.Time.Calendar.addDays` Data.Time.Clock.System.systemEpochDay)
-      <$!> Database.ClickHouse.Parser.int32le
+      <$!> Database.ClickHouse.Internal.Parser.int32le
 {-# INLINE date32 #-}
 
 float32 :: Column Float
 float32 =
-  Column Database.ClickHouse.Parser.float32le
+  Column Database.ClickHouse.Internal.Parser.float32le
 {-# INLINE float32 #-}
 
 float64 :: Column Double
 float64 =
-  Column Database.ClickHouse.Parser.float64le
+  Column Database.ClickHouse.Internal.Parser.float64le
 {-# INLINE float64 #-}
 
 bool :: Column Bool
 bool =
   Column $
     (\x -> x > 0)
-      <$!> Database.ClickHouse.Parser.word8
+      <$!> Database.ClickHouse.Internal.Parser.word8
 {-# INLINE bool #-}
 
 uuid :: Column Data.UUID.UUID
 uuid =
   Column $
     Data.UUID.fromWords64
-      <$> Database.ClickHouse.Parser.word64le
-      <*> Database.ClickHouse.Parser.word64le
+      <$> Database.ClickHouse.Internal.Parser.word64le
+      <*> Database.ClickHouse.Internal.Parser.word64le
 {-# INLINE uuid #-}
 
 dateTime :: Column Data.Time.UTCTime
@@ -234,7 +234,7 @@ dateTime = dateTime32
 dateTime32 :: Column Data.Time.UTCTime
 dateTime32 =
   Column $ do
-    !time <- Database.ClickHouse.Parser.int32le
+    !time <- Database.ClickHouse.Internal.Parser.int32le
     let utcTime@Data.Time.UTCTime {utctDayTime = !_x, utctDay = !_y} =
           Data.Time.Clock.POSIX.posixSecondsToUTCTime (fromIntegral time)
     pure utcTime
@@ -243,12 +243,12 @@ dateTime32 =
 dateTime64 :: Column Data.Time.UTCTime
 dateTime64 = Column $ do
   (\time -> Data.Time.Clock.POSIX.posixSecondsToUTCTime (fromIntegral time / 1000))
-    <$!> Database.ClickHouse.Parser.int64le
+    <$!> Database.ClickHouse.Internal.Parser.int64le
 {-# INLINE dateTime64 #-}
 
 map :: (Hashable a) => Column a -> Column b -> Column (HashMap a b)
 map (Column getKey) (Column getValue) = Column $ do
-  len <- Database.ClickHouse.Parser.uLEB128
+  len <- Database.ClickHouse.Internal.Parser.uLEB128
   entries len mempty
   where
     entries 0 !acc =
@@ -262,7 +262,7 @@ map (Column getKey) (Column getValue) = Column $ do
 array :: (Data.Vector.Generic.Vector v a) => Column a -> Column (v a)
 array (Column elem) = Column $ do
   len <-
-    Database.ClickHouse.Parser.uLEB128
+    Database.ClickHouse.Internal.Parser.uLEB128
   xs <-
     liftIO $ Data.Vector.Generic.Mutable.new (fromIntegral len)
   go xs (fromIntegral len) 0
@@ -398,7 +398,7 @@ data Fold input output where
 runDecoder :: IO Data.ByteString.ByteString -> Row a -> Fold a b -> IO b
 runDecoder source (Row _ parser) (Fold start step stop) = do
   state <- start
-  let stream = Database.ClickHouse.Parser.parseFromSource source parser
+  let stream = Database.ClickHouse.Internal.Parser.parseFromSource source parser
   Database.ClickHouse.Stream.foldStream
     ( \state element ->
         case element of

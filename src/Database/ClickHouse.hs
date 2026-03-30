@@ -76,7 +76,7 @@
 --
 -- = Inserting data
 --
--- Build an 'Database.ClickHouse.Insert.Insert' describing the target table,
+-- Build an 'Database.ClickHouse.Internal.Insert.Insert' describing the target table,
 -- columns, and row encoder, then run it with 'runInsert'.
 --
 -- == Inserting a single-column row
@@ -84,7 +84,7 @@
 -- @
 -- import "Database.ClickHouse.Value" qualified as Value
 --
--- let ins = 'Database.ClickHouse.Insert.insert' \"my_table\" [\"val\"] Value.uint32 'mempty'
+-- let ins = 'insert' \"my_table\" [\"val\"] Value.uint32 'mempty'
 -- 'runInsert' connection ins () [1, 2, 3 :: Word32]
 -- @
 --
@@ -100,7 +100,7 @@
 --       'Data.Functor.Contravariant.contramap' fst Value.int64
 --         \<\> 'Data.Functor.Contravariant.contramap' snd Value.string
 --
--- let ins = 'Database.ClickHouse.Insert.insert' \"events\" [\"id\", \"name\"] encoder 'mempty'
+-- let ins = 'insert' \"events\" [\"id\", \"name\"] encoder 'mempty'
 -- 'runInsert' connection ins () [(1, \"click\"), (2, \"view\")]
 -- @
 --
@@ -111,7 +111,7 @@
 --       'Data.Functor.Contravariant.contramap' fst Value.string
 --         \<\> 'Data.Functor.Contravariant.contramap' snd (Value.nullable Value.uint32)
 --
--- let ins = 'Database.ClickHouse.Insert.insert' \"users\" [\"name\", \"age\"] encoder 'mempty'
+-- let ins = 'insert' \"users\" [\"name\", \"age\"] encoder 'mempty'
 -- 'runInsert' connection ins () [(\"alice\", Just 30), (\"bob\", Nothing)]
 -- @
 module Database.ClickHouse
@@ -134,9 +134,9 @@ module Database.ClickHouse
     Database.ClickHouse.Result.manyRows,
 
     -- * Insert
-    Database.ClickHouse.Insert.Insert,
-    Database.ClickHouse.Insert.insert,
-    Database.ClickHouse.Insert.modifySettings,
+    Database.ClickHouse.Internal.Insert.Insert,
+    Database.ClickHouse.Internal.Insert.insert,
+    Database.ClickHouse.Internal.Insert.modifySettings,
 
     -- * Streaming
     Database.ClickHouse.Stream.ToStreamIO (..),
@@ -160,7 +160,7 @@ import Database.ClickHouse.Connection
     ConnectionOptions (..),
     newConnection,
   )
-import Database.ClickHouse.Insert qualified
+import Database.ClickHouse.Internal.Insert qualified
 import Database.ClickHouse.Params qualified
 import Database.ClickHouse.Result qualified
 import Database.ClickHouse.Stream (Stream (..), ToStreamIO (..))
@@ -168,7 +168,7 @@ import Database.ClickHouse.Value qualified
 import Network.HTTP.Client qualified
 import Network.HTTP.Types qualified
 
--- | Execute an 'Database.ClickHouse.Insert.Insert' statement, streaming rows
+-- | Execute an 'Database.ClickHouse.Internal.Insert.Insert' statement, streaming rows
 -- into ClickHouse.
 --
 -- The @values@ argument can be any type with a 'ToStreamIO' instance (e.g. a
@@ -176,7 +176,7 @@ import Network.HTTP.Types qualified
 runInsert ::
   (ToStreamIO value values) =>
   Connection ->
-  Database.ClickHouse.Insert.Insert input value ->
+  Database.ClickHouse.Internal.Insert.Insert input value ->
   input ->
   values ->
   IO ()
@@ -184,7 +184,7 @@ runInsert connection insert paramsInput inputs = do
   let query =
         Data.Text.Lazy.toStrict
           ( Data.Text.Lazy.Builder.toLazyText
-              (Database.ClickHouse.Insert.renderInsert insert)
+              (Database.ClickHouse.Internal.Insert.renderInsert insert)
           )
 
       stream = toStreamIO inputs
