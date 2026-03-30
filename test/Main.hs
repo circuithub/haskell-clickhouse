@@ -770,6 +770,37 @@ mapTestCases =
           mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint32),
           mapExpected = Data.HashMap.Strict.fromList [("present", Just 42), ("also", Just (99 :: Word32))]
         }
+    ),
+    -- Map with tuple keys
+    ( "Map(Tuple(String, UInt32), Int64)",
+      MapTestCase
+        { mapQuery = "SELECT map(('a', 1), 100, ('b', 2), 200)::Map(Tuple(String, UInt32), Int64)",
+          mapResult = Database.ClickHouse.Result.map ((,) <$> Database.ClickHouse.Result.string <*> Database.ClickHouse.Result.uint32) Database.ClickHouse.Result.int64,
+          mapExpected = Data.HashMap.Strict.fromList [(("a", 1 :: Word32), 100 :: Int64), (("b", 2), 200)]
+        }
+    ),
+    -- Map with tuple values
+    ( "Map(String, Tuple(Int64, UInt32))",
+      MapTestCase
+        { mapQuery = "SELECT map('x', (10, 1), 'y', (20, 2))::Map(String, Tuple(Int64, UInt32))",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string ((,) <$> Database.ClickHouse.Result.int64 <*> Database.ClickHouse.Result.uint32),
+          mapExpected = Data.HashMap.Strict.fromList [("x", (10 :: Int64, 1 :: Word32)), ("y", (20, 2))]
+        }
+    ),
+    -- Map with tuple keys and tuple values
+    ( "Map(Tuple(String, UInt32), Tuple(Int64, Float64))",
+      MapTestCase
+        { mapQuery = "SELECT map(('a', 1), (100, 1.5), ('b', 2), (200, 2.5))::Map(Tuple(String, UInt32), Tuple(Int64, Float64))",
+          mapResult =
+            Database.ClickHouse.Result.map
+              ((,) <$> Database.ClickHouse.Result.string <*> Database.ClickHouse.Result.uint32)
+              ((,) <$> Database.ClickHouse.Result.int64 <*> Database.ClickHouse.Result.float64),
+          mapExpected =
+            Data.HashMap.Strict.fromList
+              [ (("a", 1 :: Word32), (100 :: Int64, 1.5 :: Double)),
+                (("b", 2), (200, 2.5))
+              ]
+        }
     )
   ]
 
