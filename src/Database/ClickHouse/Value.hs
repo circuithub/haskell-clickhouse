@@ -153,6 +153,11 @@ string = Value $ \text ->
 --
 -- The inner 'Data.ByteString.ByteString' is written as-is (no length prefix),
 -- which matches the RowBinary wire format for @FixedString@.
+--
+-- Note: this encoder does /not/ check or enforce that the byte string has
+-- exactly @n@ bytes, nor does it pad or truncate the value. It is the
+-- caller's responsibility to ensure the length matches the column's
+-- @FixedString(n)@ declaration.
 fixedString :: forall (n :: GHC.TypeLits.Nat). Value (FixedString n)
 fixedString = Value $ \(FixedString bs) ->
   Data.ByteString.Builder.byteString bs
