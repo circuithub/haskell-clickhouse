@@ -18,7 +18,7 @@ jobs:
       - name: Set up GHC and Cabal
         uses: haskell-actions/setup@v2
         with:
-          ghc-version: '9.12.1'
+          ghc-version: '9.12.2'
           cabal-version: '3.16'
 
       - name: Cache Cabal artifacts
@@ -28,9 +28,9 @@ jobs:
             ~/.cabal/packages
             ~/.cabal/store
             dist-newstyle
-          key: ${{ runner.os }}-ghc-9.12.1-cabal-${{ hashFiles('**/*.cabal', 'cabal.project', 'cabal.project.local') }}
+          key: ${{ runner.os }}-ghc-9.12.2-cabal-${{ hashFiles('**/*.cabal', 'cabal.project', 'cabal.project.local') }}
           restore-keys: |
-            ${{ runner.os }}-ghc-9.12.1-cabal-
+            ${{ runner.os }}-ghc-9.12.2-cabal-
 
       - name: Install system dependencies
         run: |
