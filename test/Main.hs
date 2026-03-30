@@ -771,6 +771,14 @@ mapTestCases =
           mapExpected = Data.HashMap.Strict.fromList [("present", Just 42), ("also", Just (99 :: Word32))]
         }
     ),
+    -- Map(String, Nullable(UInt32)) - map with actual NULL in value
+    ( "Map(String, Nullable(UInt32)) with NULL",
+      MapTestCase
+        { mapQuery = "SELECT CAST(map('present', 42, 'missing', NULL) AS Map(String, Nullable(UInt32)))",
+          mapResult = Database.ClickHouse.Result.map Database.ClickHouse.Result.string (Database.ClickHouse.Result.nullable Database.ClickHouse.Result.uint32),
+          mapExpected = Data.HashMap.Strict.fromList [("present", Just (42 :: Word32)), ("missing", Nothing)]
+        }
+    ),
     -- Map with tuple keys
     ( "Map(Tuple(String, UInt32), Int64)",
       MapTestCase
