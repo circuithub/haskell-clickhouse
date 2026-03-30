@@ -84,8 +84,7 @@ import Network.HTTP.Client qualified
 
 -- | 'ClickhouseResultException' is thrown when a response parsing error occurs.
 data ClickhouseResultException
-  = -- | A row returned from Clickhouse is not a valid JSON array according to the
-    -- JSONCompactEachRow format.
+  = -- | A row returned from Clickhouse could not be parsed.
     QueryError String
   | -- | Type error when parsing a row.
     RowParseError

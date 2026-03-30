@@ -1,4 +1,7 @@
 -- |
+-- This client communicates with ClickHouse over HTTP using the RowBinary format
+-- for efficient serialization and deserialization of query results and inserts.
+--
 -- = Connecting
 --
 -- @
