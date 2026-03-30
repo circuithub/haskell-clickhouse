@@ -61,7 +61,7 @@ library
     RecordWildCards
 
   build-depends:
-    , base >=4.19 && <4.21
+    , base < 5.0
     , bytestring
     , containers
     , contravariant
@@ -89,11 +89,14 @@ test-suite clickhouse-client-test
   main-is:            Main.hs
 
   build-depends:
-    , base >=4.19 && <4.21
+    , base < 5.0
     , bytestring
     , clickhouse-client
     , tasty
     , tasty-hunit
+    , testcontainers
     , text
     , time
     , unordered-containers
+    , uuid
+    , vector

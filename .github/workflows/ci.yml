@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up GHC and Cabal
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.12.1'
+          cabal-version: '3.16'
+
+      - name: Cache Cabal artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/packages
+            ~/.cabal/store
+            dist-newstyle
+          key: ${{ runner.os }}-ghc-9.12.1-cabal-${{ hashFiles('**/*.cabal', 'cabal.project', 'cabal.project.local') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-9.12.1-cabal-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config zlib1g-dev
+
+      - name: Run tests
+        run: |
+          cabal update
+          cabal test all --test-show-details=direct
