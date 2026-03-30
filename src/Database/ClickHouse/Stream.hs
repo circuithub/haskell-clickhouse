@@ -13,6 +13,8 @@ module Database.ClickHouse.Stream
 where
 
 import Data.List.NonEmpty (NonEmpty, toList)
+import Data.Vector (Vector)
+import qualified Data.Vector as Vector
 
 -- | A CPS (Scott-encoded) stream type. Each step either yields an element
 -- and a tail, or signals the end of the stream.
@@ -70,3 +72,6 @@ instance ToStreamIO a (Stream IO a) where
 
 instance ToStreamIO a (NonEmpty a) where
   toStreamIO = fromList . toList
+
+instance ToStreamIO a (Vector a) where
+  toStreamIO = fromList . Vector.toList
