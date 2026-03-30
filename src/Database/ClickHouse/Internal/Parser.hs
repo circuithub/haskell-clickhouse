@@ -20,6 +20,10 @@ module Database.ClickHouse.Internal.Parser
     text,
     takeN,
     uLEB128,
+    checkBounds,
+    parserAp,
+    parserBind,
+    parserFmap,
   )
 where
 
@@ -58,39 +62,63 @@ instance MonadIO Parser where
     pure (ParseSuccess pos result)
 
 instance Functor Parser where
-  fmap f (Parser p) = Parser $ \end pos -> do
-    result <- p end pos
-    case result of
-      ParseSuccess pos' x -> return $ ParseSuccess pos' (f x)
-      ParseFailure err -> return $ ParseFailure err
-      UnexpectedEndOfInput -> return UnexpectedEndOfInput
+  fmap = parserFmap
+  {-# INLINE fmap #-}
 
 instance Applicative Parser where
   pure x = Parser $ \_ pos -> return $ ParseSuccess pos x
 
-  Parser pf <*> Parser px = Parser $ \end pos -> do
-    result <- pf end pos
-    case result of
-      ParseSuccess pos' f -> do
-        result' <- px end pos'
-        case result' of
-          ParseSuccess pos'' x -> return $ ParseSuccess pos'' (f x)
-          ParseFailure err -> return $ ParseFailure err
-          UnexpectedEndOfInput -> return UnexpectedEndOfInput
-      ParseFailure err -> return $ ParseFailure err
-      UnexpectedEndOfInput -> return UnexpectedEndOfInput
+  (<*>) = parserAp
+  {-# INLINE (<*>) #-}
 
 instance Monad Parser where
   return = pure
 
-  Parser px >>= f = Parser $ \end pos -> do
-    result <- px end pos
-    case result of
-      ParseSuccess pos' x -> do
-        let Parser py = f x
-        py end pos'
-      ParseFailure err -> return $ ParseFailure err
-      UnexpectedEndOfInput -> return UnexpectedEndOfInput
+  (>>=) = parserBind
+  {-# INLINE (>>=) #-}
+
+-- | Apply a function to the result of a parser.
+--
+-- Named wrapper used in rewrite rules to fuse 'checkBounds' through 'fmap'.
+parserFmap :: (a -> b) -> Parser a -> Parser b
+parserFmap f (Parser p) = Parser $ \end pos -> do
+  result <- p end pos
+  case result of
+    ParseSuccess pos' x -> return $ ParseSuccess pos' (f x)
+    ParseFailure err -> return $ ParseFailure err
+    UnexpectedEndOfInput -> return UnexpectedEndOfInput
+{-# NOINLINE [1] parserFmap #-}
+
+-- | Applicative sequencing for parsers.
+--
+-- Named wrapper used in rewrite rules to fuse consecutive 'checkBounds'.
+parserAp :: Parser (a -> b) -> Parser a -> Parser b
+parserAp (Parser pf) (Parser px) = Parser $ \end pos -> do
+  result <- pf end pos
+  case result of
+    ParseSuccess pos' f -> do
+      result' <- px end pos'
+      case result' of
+        ParseSuccess pos'' x -> return $ ParseSuccess pos'' (f x)
+        ParseFailure err -> return $ ParseFailure err
+        UnexpectedEndOfInput -> return UnexpectedEndOfInput
+    ParseFailure err -> return $ ParseFailure err
+    UnexpectedEndOfInput -> return UnexpectedEndOfInput
+{-# NOINLINE [1] parserAp #-}
+
+-- | Monadic bind for parsers.
+--
+-- Named wrapper used in rewrite rules to fuse consecutive 'checkBounds'.
+parserBind :: Parser a -> (a -> Parser b) -> Parser b
+parserBind (Parser pa) f = Parser $ \end pos -> do
+  result <- pa end pos
+  case result of
+    ParseSuccess pos' x -> do
+      let Parser pb = f x
+      pb end pos'
+    ParseFailure err -> return $ ParseFailure err
+    UnexpectedEndOfInput -> return UnexpectedEndOfInput
+{-# NOINLINE [1] parserBind #-}
 
 runParser :: Parser a -> ByteString -> (ParseResult a, ByteString)
 runParser (Parser p) bs = unsafeDupablePerformIO $ do
@@ -135,6 +163,29 @@ checkBounds n (Parser k) = Parser $ \end pos ->
   if pos `plusPtr` n <= end
     then k end pos
     else return UnexpectedEndOfInput
+{-# NOINLINE [1] checkBounds #-}
+
+-- Rewrite rules that fuse consecutive checkBounds into a single check.
+--
+-- When two parsers each guarded by checkBounds are sequenced via parserAp,
+-- the two bounds checks can be merged: if the first parser consumes exactly
+-- n bytes and the second needs m bytes, checking (n + m) bytes upfront
+-- suffices and eliminates the second check.
+--
+-- The rules are keyed on parserAp/parserBind/parserFmap (named functions
+-- we control) rather than on class methods, which ensures they fire
+-- reliably across module boundaries.
+{-# RULES
+"checkBounds/parserAp" forall n m p q.
+  parserAp (checkBounds n p) (checkBounds m q) =
+    checkBounds (n + m) (parserAp p q)
+"checkBounds/parserBind" forall n m p f.
+  parserBind (checkBounds n p) (\x -> checkBounds m (f x)) =
+    checkBounds (n + m) (parserBind p f)
+"checkBounds/parserFmap" forall f n p.
+  parserFmap f (checkBounds n p) =
+    checkBounds n (parserFmap f p)
+  #-}
 
 {-# INLINE word8 #-}
 word8 :: Parser Word8
