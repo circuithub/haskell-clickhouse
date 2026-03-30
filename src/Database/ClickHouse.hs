@@ -12,7 +12,8 @@
 --         database = Nothing,
 --         user = Nothing,
 --         password = Nothing,
---         httpManager = Nothing
+--         httpManager = Nothing,
+--         responseTimeoutSeconds = Nothing
 --       }
 -- @
 --

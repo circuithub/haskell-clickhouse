@@ -50,7 +50,8 @@ setup = do
           Database.ClickHouse.database = Nothing,
           Database.ClickHouse.user = Nothing,
           Database.ClickHouse.password = Nothing,
-          Database.ClickHouse.httpManager = Nothing
+          Database.ClickHouse.httpManager = Nothing,
+          Database.ClickHouse.responseTimeoutSeconds = Nothing
         }
     )
 

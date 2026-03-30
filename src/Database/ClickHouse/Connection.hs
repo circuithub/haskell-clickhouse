@@ -36,7 +36,9 @@ data ConnectionOptions = ConnectionOptions
     -- | Password for authentication.
     password :: !(Maybe Text),
     -- | Optional pre-existing connection manager. When 'Nothing', a new one is created.
-    httpManager :: !(Maybe HTTP.Manager)
+    httpManager :: !(Maybe HTTP.Manager),
+    -- | HTTP response timeout in seconds. Defaults to @10@ seconds when 'Nothing'.
+    responseTimeoutSeconds :: !(Maybe Int)
   }
 
 -- | Create a new 'Connection' from the given 'ConnectionOptions'.
@@ -49,7 +51,8 @@ data ConnectionOptions = ConnectionOptions
 --         database = Nothing,
 --         user = Nothing,
 --         password = Nothing,
---         httpManager = Nothing
+--         httpManager = Nothing,
+--         responseTimeoutSeconds = Nothing
 --       }
 -- @
 newConnection :: (MonadThrow m, MonadIO m) => ConnectionOptions -> m Connection
@@ -70,8 +73,8 @@ newConnection ConnectionOptions {..} = do
             { method = "POST",
               requestHeaders = headers,
               responseTimeout =
-                -- 15 minute response timeout
-                HTTP.responseTimeoutMicro (15 * 60 * 1_000_000)
+                let seconds = maybe 10 id responseTimeoutSeconds
+                 in HTTP.responseTimeoutMicro (seconds * 1_000_000)
             }
 
   manager <-

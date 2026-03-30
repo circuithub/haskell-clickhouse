@@ -38,6 +38,7 @@ connection <-
       , user = Nothing
       , password = Nothing
       , httpManager = Nothing
+      , responseTimeoutSeconds = Nothing
       }
 ```
 
