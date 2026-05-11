@@ -14,6 +14,7 @@ module Database.ClickHouse.Value
     float32,
     float64,
     string,
+    byteString,
     uuid,
     Database.ClickHouse.Value.bool,
     Database.ClickHouse.Value.map,
@@ -36,6 +37,7 @@ where
 
 import Data.Bits qualified
 import Data.ByteString.Builder qualified
+import Data.ByteString.Char8 qualified as BS8
 import Data.Functor.Contravariant (Contravariant (..))
 import Data.Functor.Contravariant.Divisible (Decidable (..), Divisible (..))
 import Data.Int (Int16, Int32, Int64, Int8)
@@ -148,6 +150,13 @@ string = Value $ \text ->
   encodeLEB128 (fromIntegral (Data.Text.Foreign.lengthWord8 text))
     <> Data.Text.Encoding.encodeUtf8Builder text
 {-# INLINE string #-}
+
+-- | Encode a 'ByteString'. Corresponds to ClickHouse @String@.
+byteString :: Value BS8.ByteString
+byteString = Value $ \bs ->
+  encodeLEB128 (fromIntegral (BS8.length bs))
+    <> Data.ByteString.Builder.byteString bs
+{-# INLINE byteString #-}
 
 -- | Encode a 'FixedString'. Corresponds to ClickHouse @FixedString(n)@.
 --
